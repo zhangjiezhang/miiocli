@@ -8,8 +8,7 @@ RUN ln -s /usr/bin/dpkg-deb /usr/sbin/dpkg-deb
 RUN ln -s /bin/rm /usr/sbin/rm
 RUN ln -s /bin/tar /usr/sbin/tar
 
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
-    && rustc --version
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 
 RUN apt-get clean \
     && apt-get update \
