@@ -15,10 +15,10 @@ jobs:
       id: buildx
       uses: crazy-max/ghaction-docker-buildx@v1
       with:
-        buildx-version: ${{ env.GITHUB_RUN_NUMBER }}
+        buildx-version: v1
     - name: "Build and push the image"
       run: |
         docker buildx build --push \
-          --tag pascall/miiocli-demo:${{ env.GITHUB_RUN_NUMBER }} \
+          --tag pascall/miiocli-demo:v1 \
           --file demo.Dockerfile \
           --platform linux/arm64,linux/amd64 .
