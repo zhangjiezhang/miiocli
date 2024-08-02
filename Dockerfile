@@ -48,7 +48,7 @@ RUN /bin/sh -c set -eux; \
        rustc --version;
 
 RUN pip install -U pip
-RUN pip --mount=type=tmpfs,target=/root/.cargo install git+https://github.com/rytilahti/python-miio.git
+RUN --mount=type=tmpfs,target=/root/.cargo pip install git+https://github.com/rytilahti/python-miio.git
 
 RUN apt-get remove -y build-essential libssl-dev libffi-dev python3-dev pkg-config \
        git curl ca-certificates gnupg netbase sq wget mercurial openssh-client subversion procps \
