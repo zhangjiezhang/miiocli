@@ -33,7 +33,7 @@ func main() {
 		log.Printf("errorStr")
 		log.Printf("%s\n", errStr)
 	}
-	if len(outStr) != 0 {
+	if len(outStr) == 0 {
 		return
 	}
 	power, temperature := parseData(outStr)
