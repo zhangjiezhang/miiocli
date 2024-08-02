@@ -20,4 +20,5 @@ jobs:
       run: |
         docker buildx build --push \
           --tag pascall/miiocli-demo:${{ env.GITHUB_RUN_NUMBER }} \
+          --file demo.Dockerfile \
           --platform linux/arm64,linux/amd64 .
