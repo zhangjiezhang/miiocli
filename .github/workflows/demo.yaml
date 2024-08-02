@@ -19,6 +19,6 @@ jobs:
     - name: "Build and push the image"
       run: |
         docker buildx build --push \
-          --tag pascall/miiocli-demo:v1 \
+          --tag pascall/miiocli-demo:v2 \
           --file demo.Dockerfile \
           --platform linux/arm64/v8,linux/amd64 .
