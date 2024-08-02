@@ -8,4 +8,4 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o gomiiocli main.g
 
 FROM pascall/miiocli:v0.6.0
 WORKDIR /app
-COPY --from=builder /app/miiocli-demo /usr/local/bin/gomiiocli
+COPY --from=builder /app/gomiiocli /usr/local/bin/gomiiocli
