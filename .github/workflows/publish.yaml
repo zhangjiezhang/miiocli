@@ -40,4 +40,4 @@ jobs:
         docker buildx build --push \
           --tag pascall/miiocli:latest \
           --tag pascall/miiocli:v0.6.0 \
-          --platform linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 .
+          --platform linux/arm64/v8,linux/amd64 .
