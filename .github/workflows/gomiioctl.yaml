@@ -29,4 +29,4 @@ jobs:
           linux/arm64
         push: true
         tags: |
-          pascall/miiocli-demo:${{ env.IMAGE_VERSION }}
+          pascall/gomiiocli:${{ github.run_number }}
