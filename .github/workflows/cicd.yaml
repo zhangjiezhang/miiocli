@@ -1,9 +1,6 @@
 name: "CICD"
 
 on:
-  push:
-    branches:
-      - '**'
   workflow_call:
   workflow_dispatch:
       
