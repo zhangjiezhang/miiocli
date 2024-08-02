@@ -34,10 +34,10 @@ jobs:
       id: buildx
       uses: crazy-max/ghaction-docker-buildx@v1
       with:
-        buildx-version: latest
+        buildx-version: v0.6.0
     - name: "Build and push the image"
       run: |
         docker buildx build --push \
-          --tag clickbg/miiocli:latest \
-          --tag clickbg/miiocli:stable \
+          --tag pascall/miiocli:latest \
+          --tag pascall/miiocli:v0.6.0 \
           --platform linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 .
