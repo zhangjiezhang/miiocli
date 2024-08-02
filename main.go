@@ -18,7 +18,7 @@ func main() {
 		return
 	}
 
-	cmd := exec.Command("miiocli", "--ip", ip, "--token", token, "status")
+	cmd := exec.Command("miiocli", "genericmiot", "--ip", ip, "--token", token, "status")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
