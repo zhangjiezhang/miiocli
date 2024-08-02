@@ -15,7 +15,7 @@ jobs:
       id: buildx
       uses: crazy-max/ghaction-docker-buildx@v1
       with:
-        buildx-version: v1
+        buildx-version: v0.6.0
     - name: "Build and push the image"
       run: |
         docker buildx build --push \
