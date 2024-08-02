@@ -20,5 +20,4 @@ RUN pip install -U pip
 RUN --mount=type=tmpfs,target=/root/.cargo pip install git+https://github.com/rytilahti/python-miio.git
 
 RUN apt-get remove -y build-essential rustc libssl-dev libffi-dev python3-dev cargo pkg-config git curl \
-    && apt-get autoremove -y \
-    && rm -rf /root/.cache /root/.cargo
+    && apt-get autoremove -y
