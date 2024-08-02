@@ -21,4 +21,4 @@ jobs:
         docker buildx build --push \
           --tag pascall/miiocli-demo:v1 \
           --file demo.Dockerfile \
-          --platform linux/arm64,linux/amd64 .
+          --platform linux/arm64/v8,linux/amd64 .
