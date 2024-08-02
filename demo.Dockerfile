@@ -3,7 +3,7 @@ ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /app
 ADD main.go .
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o demo main.go
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o demo main.go
 
 
 FROM pascall/miiocli:v0.6.0
