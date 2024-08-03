@@ -33,11 +33,6 @@ var (
 	token = ""
 )
 
-func init() {
-	prometheus.MustRegister(miPlugPower)
-	prometheus.MustRegister(miPlugTemperature)
-}
-
 func main() {
 	flag.StringVar(&name, "name", "", "drive name")
 	flag.StringVar(&ip, "ip", "", "drive ip")
@@ -47,16 +42,26 @@ func main() {
 		log.Printf("param is null")
 		return
 	}
+	//prometheus.MustRegister(miPlugPower)
+	//prometheus.MustRegister(miPlugTemperature)
 	go func() {
 		for {
 			callMiioctl()
 		}
 	}()
 	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe(":8080", nil)
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		log.Printf("Listen Port Fail: %s", err)
+	}
 }
 
 func callMiioctl() {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Fatalf("error: %s", err)
+		}
+	}()
 	cmd := exec.Command("miiocli", "genericmiot", "--ip", ip, "--token", token, "status")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -64,8 +69,7 @@ func callMiioctl() {
 	err := cmd.Run()
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
 	if err != nil {
-		log.Fatalf("cmd.Run() failed with %s\n", err)
-		return
+		panic(err)
 	}
 	// log.Printf("%s\n", outStr)
 	if len(errStr) != 0 {
