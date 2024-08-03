@@ -86,7 +86,7 @@ func callMiioctl() {
 		if err != nil {
 			log.Printf("Error: %s", err)
 		} else {
-			miPlugPower.WithLabelValues("name", name).Set(powerFloat)
+			miPlugPower.With(prometheus.Labels{"name": name}).Set(powerFloat)
 		}
 	}
 	if len(temperature) != 0 {
@@ -94,7 +94,7 @@ func callMiioctl() {
 		if err != nil {
 			log.Printf("Error: %s", err)
 		} else {
-			miPlugTemperature.WithLabelValues("name", name).Set(temperatureFloat)
+			miPlugTemperature.With(prometheus.Labels{"name": name}).Set(temperatureFloat)
 		}
 	}
 }
