@@ -5,10 +5,10 @@ WORKDIR /app
 COPY main.go main.go
 COPY go.mod go.mod
 COPY go.sum go.sum
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o gomiiocli main.go
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o gomiio main.go
 
 
 FROM pascall/miiocli:v0.6.0
 WORKDIR /app
 EXPOSE 8080
-COPY --from=builder /app/gomiiocli /usr/local/bin/gomiiocli
+COPY --from=builder /app/gomiio /usr/local/bin/gomiio
