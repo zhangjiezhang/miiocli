@@ -1,9 +1,9 @@
-name: "GOMIIOCTL"
+name: "GOMIIO"
 on:
   workflow_dispatch:
   
 jobs:
-  gomiioctl:
+  gomiio:
     runs-on: ubuntu-latest
     env:
       IMAGE_VERSION: 'v3'
@@ -29,4 +29,4 @@ jobs:
           linux/arm64
         push: true
         tags: |
-          pascall/gomiiocli:${{ github.run_number }}
+          pascall/gomiio:${{ github.run_number }}
