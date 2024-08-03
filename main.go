@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 var (
@@ -31,12 +32,14 @@ var (
 	name  = ""
 	ip    = ""
 	token = ""
+	daily float64
 )
 
 func main() {
 	flag.StringVar(&name, "name", "", "drive name")
 	flag.StringVar(&ip, "ip", "", "drive ip")
 	flag.StringVar(&token, "token", "", "drive token")
+	flag.Float64Var(&daily, "daily", 10, "daily seconds")
 	flag.Parse()
 	if len(name) == 0 || len(ip) == 0 || len(token) == 0 {
 		log.Printf("param is null")
@@ -47,6 +50,7 @@ func main() {
 	go func() {
 		for {
 			callMiioctl()
+			time.Sleep(time.Duration(daily) * time.Second)
 		}
 	}()
 	http.Handle("/metrics", promhttp.Handler())
