@@ -1,22 +1,6 @@
 name: "PUBLISH"
 on:
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      environment:
-        required: true
-        type: string
-    secrets:
-      DOCKER_USERNAME:
-        required: true
-      DOCKER_PASSWORD:
-        required: true
-  workflow_run:
-    workflows: ["CICD"]
-    types:
-      - completed
-    branches:
-        - 'main'
 
 jobs:
 
