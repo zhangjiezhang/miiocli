@@ -34,12 +34,9 @@ var (
 	)
 	filePath = ""
 	daily    float64
-	config   Config
+	mi       []Mi
 )
 
-type Config struct {
-	mi []Mi `yaml:"mi"`
-}
 type Mi struct {
 	Name  string `yaml:"name"`
 	Ip    string `yaml:"ip"`
@@ -69,7 +66,7 @@ func main() {
 		log.Printf("读取配置文件失败 #%v", err)
 		return
 	}
-	err = yaml.Unmarshal(file, &config)
+	err = yaml.Unmarshal(file, &mi)
 	if err != nil {
 		log.Fatalf("解析失败: %v", err)
 		return
@@ -95,7 +92,7 @@ func callMiioctl() {
 			log.Fatalf("callMiioctl error: %s", err)
 		}
 	}()
-	for _, item := range config.mi {
+	for _, item := range mi {
 		callMiioctlItem(item)
 	}
 }
