@@ -12,3 +12,5 @@ FROM pascall/miiocli:v0.6.0
 WORKDIR /app
 EXPOSE 8080
 COPY --from=builder /app/gomiio /usr/local/bin/gomiio
+VOLUME /app
+CMD ["gomiio", "--filePath", "/app/app.yaml", "--daily", "8"]
