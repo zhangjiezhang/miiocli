@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gopkg.in/yaml.v2"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -29,20 +32,46 @@ var (
 		},
 		[]string{"name"},
 	)
-	name  = ""
-	ip    = ""
-	token = ""
-	daily float64
+	filePath = ""
+	daily    float64
+	config   Config
 )
 
+type Config struct {
+	mi []Mi `yaml:"mi"`
+}
+type Mi struct {
+	Name  string `yaml:"name"`
+	Ip    string `yaml:"ip"`
+	Token string `yaml:"token"`
+	Drive string `yaml:"drive"`
+}
+
+// [{'did': '11-2', 'siid': 11, 'piid': 2, 'code': 0, 'value': 508}]
+type Miio struct {
+	Did   string `yaml:"did"`
+	Siid  string `yaml:"siid"`
+	Piid  string `yaml:"piid"`
+	Code  int    `yaml:"code"`
+	Value string `yaml:"value"`
+}
+
 func main() {
-	flag.StringVar(&name, "name", "", "drive name")
-	flag.StringVar(&ip, "ip", "", "drive ip")
-	flag.StringVar(&token, "token", "", "drive token")
+	flag.StringVar(&filePath, "filePath", "./app.yaml", "config file path")
 	flag.Float64Var(&daily, "daily", 10, "daily seconds")
 	flag.Parse()
-	if len(name) == 0 || len(ip) == 0 || len(token) == 0 {
+	if len(filePath) == 0 {
 		log.Printf("param is null")
+		return
+	}
+	file, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Printf("读取配置文件失败 #%v", err)
+		return
+	}
+	err = yaml.Unmarshal(file, &config)
+	if err != nil {
+		log.Fatalf("解析失败: %v", err)
 		return
 	}
 	//prometheus.MustRegister(miPlugPower)
@@ -54,7 +83,7 @@ func main() {
 		}
 	}()
 	http.Handle("/metrics", promhttp.Handler())
-	err := http.ListenAndServe(":8080", nil)
+	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)
 	}
@@ -63,10 +92,36 @@ func main() {
 func callMiioctl() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Fatalf("error: %s", err)
+			log.Fatalf("callMiioctl error: %s", err)
 		}
 	}()
-	cmd := exec.Command("miiocli", "genericmiot", "--ip", ip, "--token", token, "status")
+	for _, item := range config.mi {
+		callMiioctlItem(item)
+	}
+}
+func callMiioctlItem(item Mi) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Fatalf("callMiioctlItem error: %s", err)
+		}
+	}()
+
+	if item.Drive == "cuco" {
+		// power
+		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
+		execSetValue(cmd, item, true)
+		// temperature
+		cmd = exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "12", "2")
+		execSetValue(cmd, item, false)
+	} else if item.Drive == "iot" {
+		// power
+		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
+		execSetValue(cmd, item, true)
+	}
+}
+
+func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
+	// [{'did': '11-2', 'siid': 11, 'piid': 2, 'code': 0, 'value': 508}]
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -75,31 +130,30 @@ func callMiioctl() {
 	if err != nil {
 		panic(err)
 	}
-	// log.Printf("%s\n", outStr)
 	if len(errStr) != 0 {
-		// log.Printf("errorStr")
 		log.Printf("%s", errStr)
 	}
 	if len(outStr) == 0 {
 		return
 	}
-	power, temperature := parseData(outStr)
-	log.Printf("功耗：%s W, 温度：%s C", power, temperature)
-	if len(power) != 0 {
-		powerFloat, err := strconv.ParseFloat(power, 64)
-		if err != nil {
-			log.Printf("Error: %s", err)
-		} else {
-			miPlugPower.With(prometheus.Labels{"name": name}).Set(powerFloat)
-		}
+	var miioList []Miio
+	err = json.Unmarshal([]byte(outStr), &miioList)
+	if err != nil {
+		log.Printf("%s", errStr)
+		return
 	}
-	if len(temperature) != 0 {
-		temperatureFloat, err := strconv.ParseFloat(temperature, 64)
-		if err != nil {
-			log.Printf("Error: %s", err)
-		} else {
-			miPlugTemperature.With(prometheus.Labels{"name": name}).Set(temperatureFloat)
-		}
+	value := miioList[0].Value
+	if len(value) == 0 {
+		return
+	}
+	valueFloat, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		log.Printf("Error: %s", err)
+	}
+	if isPower {
+		miPlugPower.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
+	} else {
+		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
 	}
 }
 
