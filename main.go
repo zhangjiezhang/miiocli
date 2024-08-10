@@ -133,9 +133,9 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	if len(outStr) == 0 {
 		return
 	}
-	log.Printf("Pre: %s", outStr)
+	list := strings.Split(outStr, "\n")
+	outStr = list[1]
 	outStr = strings.ReplaceAll(outStr, "'", "\"")
-	log.Printf("Pro: %s", outStr)
 	var miioList []Miio
 	err = json.Unmarshal([]byte(outStr), &miioList)
 	if err != nil {
@@ -143,6 +143,7 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 		return
 	}
 	valueFloat := miioList[0].Value
+	log.Printf("valueFloat: %f", valueFloat)
 	if err != nil {
 		log.Printf("Error: %s", err)
 	}
