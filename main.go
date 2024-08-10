@@ -13,7 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
+	"strings"
 	"time"
 )
 
@@ -46,11 +46,11 @@ type Mi struct {
 
 // [{'did': '11-2', 'siid': 11, 'piid': 2, 'code': 0, 'value': 508}]
 type Miio struct {
-	Did   string `yaml:"did"`
-	Siid  string `yaml:"siid"`
-	Piid  string `yaml:"piid"`
-	Code  int    `yaml:"code"`
-	Value string `yaml:"value"`
+	Did   string  `yaml:"did"`
+	Siid  int     `yaml:"siid"`
+	Piid  int     `yaml:"piid"`
+	Code  int     `yaml:"code"`
+	Value float64 `yaml:"value"`
 }
 
 func main() {
@@ -133,17 +133,16 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	if len(outStr) == 0 {
 		return
 	}
+	log.Printf("Pre: %s", outStr)
+	outStr = strings.ReplaceAll(outStr, "'", "\"")
+	log.Printf("Pro: %s", outStr)
 	var miioList []Miio
 	err = json.Unmarshal([]byte(outStr), &miioList)
 	if err != nil {
 		log.Printf("%s", errStr)
 		return
 	}
-	value := miioList[0].Value
-	if len(value) == 0 {
-		return
-	}
-	valueFloat, err := strconv.ParseFloat(value, 64)
+	valueFloat := miioList[0].Value
 	if err != nil {
 		log.Printf("Error: %s", err)
 	}
