@@ -32,16 +32,28 @@ var (
 		},
 		[]string{"name"},
 	)
+	esxiTemperature = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "vmware_host_sensor_power_watt",
+			Help: "小米智能插座温度在vmware中统计",
+			ConstLabels: map[string]string{
+				"dc_name": "ha-datacenter",
+				"name":    "System Board 1 Pwr Consumption",
+			},
+		},
+		[]string{"host_name", "instance", "job"},
+	)
 	filePath = ""
 	daily    float64
 	mi       []Mi
 )
 
 type Mi struct {
-	Name  string `yaml:"name"`
-	Ip    string `yaml:"ip"`
-	Token string `yaml:"token"`
-	Drive string `yaml:"drive"`
+	Name     string `yaml:"name"`
+	Ip       string `yaml:"ip"`
+	Token    string `yaml:"token"`
+	Drive    string `yaml:"drive"`
+	HostName string `yaml:"hostName"`
 }
 
 // [{'did': '11-2', 'siid': 11, 'piid': 2, 'code': 0, 'value': 508}]
@@ -149,6 +161,9 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	}
 	if isPower {
 		miPlugPower.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
+		if len(item.HostName) > 0 {
+			esxiTemperature.With(prometheus.Labels{"host_name": item.HostName, "instance": item.Ip, "job": item.Name}).Set(valueFloat)
+		}
 	} else {
 		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
 	}
