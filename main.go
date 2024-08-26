@@ -41,7 +41,7 @@ var (
 				"name":    "System Board 1 Pwr Consumption",
 			},
 		},
-		[]string{"host_name", "instance", "job"},
+		[]string{"host_name"},
 	)
 	filePath = ""
 	daily    float64
@@ -162,7 +162,7 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	if isPower {
 		miPlugPower.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
 		if len(item.HostName) > 0 {
-			esxiTemperature.With(prometheus.Labels{"host_name": item.HostName, "instance": item.Ip, "job": item.Name}).Set(valueFloat)
+			esxiTemperature.With(prometheus.Labels{"host_name": item.HostName}).Set(valueFloat)
 		}
 	} else {
 		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
