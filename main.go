@@ -66,13 +66,10 @@ type Miio struct {
 	Value float64 `yaml:"value"`
 }
 
-type StaticData struct {
-	Name  string  `json:"name"`
-	Value float64 `json:"value"`
-}
+
 type ResultData struct {
-	Powers       []StaticData `json:"powers"`
-	Temperatures []StaticData `json:"temperatures"`
+	Powers       map[string]float64 `json:"powers"`
+	Temperatures map[string]float64 `json:"temperatures"`
 }
 type Result struct {
 	Code int        `json:"code"`
@@ -126,14 +123,11 @@ func callMiioctl() {
 			log.Fatalf("callMiioctl error: %s", err)
 		}
 	}()
-	var powers []StaticData
-	var temperatures []StaticData
 	for _, item := range mi {
-		powers, temperatures = callMiioctlItem(item, powers, temperatures)
+		callMiioctlItem(item)
 	}
-	resultData = ResultData{Powers: powers, Temperatures: temperatures}
 }
-func callMiioctlItem(item Mi, powers []StaticData, temperatures []StaticData) ([]StaticData, []StaticData) {
+func callMiioctlItem(item Mi) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Fatalf("callMiioctlItem error: %s", err)
@@ -142,19 +136,18 @@ func callMiioctlItem(item Mi, powers []StaticData, temperatures []StaticData) ([
 	if item.Drive == "cuco" {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
-		powers = execSetValue(cmd, item, true, powers)
+		execSetValue(cmd, item, true)
 		// temperature
 		cmd = exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "12", "2")
-		temperatures = execSetValue(cmd, item, false, temperatures)
+		execSetValue(cmd, item, false)
 	} else if item.Drive == "iot" {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
-		powers = execSetValue(cmd, item, true, powers)
+		execSetValue(cmd, item, true)
 	}
-	return powers, temperatures
 }
 
-func execSetValue(cmd *exec.Cmd, item Mi, isPower bool, statics []StaticData) []StaticData {
+func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	// [{'did': '11-2', 'siid': 11, 'piid': 2, 'code': 0, 'value': 508}]
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -168,7 +161,7 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool, statics []StaticData) []
 		log.Printf("%s", errStr)
 	}
 	if len(outStr) == 0 {
-		return statics
+		return
 	}
 	list := strings.Split(outStr, "\n")
 	outStr = list[1]
@@ -177,7 +170,7 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool, statics []StaticData) []
 	err = json.Unmarshal([]byte(outStr), &miioList)
 	if err != nil {
 		log.Printf("%s", errStr)
-		return statics
+		return
 	}
 	valueFloat := miioList[0].Value
 	log.Printf("valueFloat: %f", valueFloat)
@@ -189,11 +182,11 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool, statics []StaticData) []
 		if len(item.HostName) > 0 {
 			esxiTemperature.With(prometheus.Labels{"host_name": item.HostName}).Set(valueFloat)
 		}
+		resultData.Powers[item.Name] = valueFloat
 	} else {
 		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
+		resultData.Temperatures[item.Name] = valueFloat
 	}
-	staticData := StaticData{Name: item.Name, Value: valueFloat}
-	return append(statics, staticData)
 }
 
 // power-consumption:electric-power
