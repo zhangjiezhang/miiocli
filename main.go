@@ -129,12 +129,11 @@ func callMiioctl() {
 	var powers []StaticData
 	var temperatures []StaticData
 	for _, item := range mi {
-		callMiioctlItem(item, powers, temperatures)
+		powers, temperatures = callMiioctlItem(item, powers, temperatures)
 	}
 	resultData = ResultData{Powers: powers, Temperatures: temperatures}
 }
-func callMiioctlItem(item Mi, powers []StaticData, temperatures []StaticData) {
-
+func callMiioctlItem(item Mi, powers []StaticData, temperatures []StaticData) ([]StaticData, []StaticData) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Fatalf("callMiioctlItem error: %s", err)
@@ -152,6 +151,7 @@ func callMiioctlItem(item Mi, powers []StaticData, temperatures []StaticData) {
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
 		powers = execSetValue(cmd, item, true, powers)
 	}
+	return powers, temperatures
 }
 
 func execSetValue(cmd *exec.Cmd, item Mi, isPower bool, statics []StaticData) []StaticData {
