@@ -126,19 +126,20 @@ func callMiioctl() {
 			log.Fatalf("callMiioctl error: %s", err)
 		}
 	}()
-	for _, item := range mi {
-		callMiioctlItem(item)
-	}
-}
-func callMiioctlItem(item Mi) {
 	var powers []StaticData
 	var temperatures []StaticData
+	for _, item := range mi {
+		callMiioctlItem(item, powers, temperatures)
+	}
+	resultData = ResultData{Powers: powers, Temperatures: temperatures}
+}
+func callMiioctlItem(item Mi, powers []StaticData, temperatures []StaticData) {
+
 	defer func() {
 		if err := recover(); err != nil {
 			log.Fatalf("callMiioctlItem error: %s", err)
 		}
 	}()
-
 	if item.Drive == "cuco" {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
@@ -151,7 +152,6 @@ func callMiioctlItem(item Mi) {
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
 		powers = execSetValue(cmd, item, true, powers)
 	}
-	resultData = ResultData{Powers: powers, Temperatures: temperatures}
 }
 
 func execSetValue(cmd *exec.Cmd, item Mi, isPower bool, statics []StaticData) []StaticData {
