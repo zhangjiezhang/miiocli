@@ -131,7 +131,7 @@ func callMiioctl() {
 	}
 }
 func callMiioctlItem(item Mi) {
-	data := ResultData{Powers: }
+	data := ResultData{}
 	defer func() {
 		if err := recover(); err != nil {
 			log.Fatalf("callMiioctlItem error: %s", err)
