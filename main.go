@@ -43,9 +43,10 @@ var (
 		},
 		[]string{"host_name"},
 	)
-	filePath = ""
-	daily    float64
-	mi       []Mi
+	filePath   = ""
+	daily      float64
+	mi         []Mi
+	resultData ResultData
 )
 
 type Mi struct {
@@ -63,6 +64,20 @@ type Miio struct {
 	Piid  int     `yaml:"piid"`
 	Code  int     `yaml:"code"`
 	Value float64 `yaml:"value"`
+}
+
+type StaticData struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+}
+type ResultData struct {
+	Powers       []StaticData `json:"powers"`
+	Temperatures []StaticData `json:"temperatures"`
+}
+type Result struct {
+	Code int        `json:"code"`
+	Msg  string     `json:"msg"`
+	Data ResultData `json:"data"`
 }
 
 func main() {
@@ -92,10 +107,17 @@ func main() {
 		}
 	}()
 	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("/static", http.HandlerFunc(static))
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)
 	}
+}
+
+func static(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "text/json")
+	msg, _ := json.Marshal(Result{Code: 200, Msg: "成功", Data: resultData})
+	w.Write(msg)
 }
 
 func callMiioctl() {
@@ -109,6 +131,7 @@ func callMiioctl() {
 	}
 }
 func callMiioctlItem(item Mi) {
+	data := ResultData{Powers: }
 	defer func() {
 		if err := recover(); err != nil {
 			log.Fatalf("callMiioctlItem error: %s", err)
@@ -118,18 +141,19 @@ func callMiioctlItem(item Mi) {
 	if item.Drive == "cuco" {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
-		execSetValue(cmd, item, true)
+		execSetValue(cmd, item, true, data)
 		// temperature
 		cmd = exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "12", "2")
-		execSetValue(cmd, item, false)
+		execSetValue(cmd, item, false, data)
 	} else if item.Drive == "iot" {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
-		execSetValue(cmd, item, true)
+		execSetValue(cmd, item, true, data)
 	}
+	resultData = data
 }
 
-func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
+func execSetValue(cmd *exec.Cmd, item Mi, isPower bool, data ResultData) {
 	// [{'did': '11-2', 'siid': 11, 'piid': 2, 'code': 0, 'value': 508}]
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -166,6 +190,12 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 		}
 	} else {
 		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
+	}
+	staticData := StaticData{Name: item.Name, Value: valueFloat}
+	if isPower {
+		data.Powers = append(data.Powers, staticData)
+	} else {
+		data.Temperatures = append(data.Temperatures, staticData)
 	}
 }
 
