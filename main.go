@@ -66,7 +66,6 @@ type Miio struct {
 	Value float64 `yaml:"value"`
 }
 
-
 type ResultData struct {
 	Powers       map[string]float64 `json:"powers"`
 	Temperatures map[string]float64 `json:"temperatures"`
@@ -97,6 +96,8 @@ func main() {
 	}
 	//prometheus.MustRegister(miPlugPower)
 	//prometheus.MustRegister(miPlugTemperature)
+	resultData.Powers = make(map[string]float64, len(mi))
+	resultData.Temperatures = make(map[string]float64, len(mi))
 	go func() {
 		for {
 			callMiioctl()
