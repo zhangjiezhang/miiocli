@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -130,31 +131,10 @@ func callEndpoint() {
 			log.Fatalf("callEndpoint error: %s", err)
 		}
 	}()
-
 	callTraffic(config.TrafficAddress)
-
 	mis := config.Mis
 	for _, item := range mis {
 		callMiioctlItem(item)
-	}
-}
-func callMiioctlItem(item Mi) {
-	defer func() {
-		if err := recover(); err != nil {
-			log.Fatalf("callMiioctlItem error: %s", err)
-		}
-	}()
-	if item.Drive == "cuco" {
-		// power
-		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
-		execSetValue(cmd, item, true)
-		// temperature
-		cmd = exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "12", "2")
-		execSetValue(cmd, item, false)
-	} else if item.Drive == "iot" {
-		// power
-		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
-		execSetValue(cmd, item, true)
 	}
 }
 func callTraffic(TrafficAddress string) {
@@ -184,6 +164,25 @@ func callTraffic(TrafficAddress string) {
 		return
 	}
 	resultData.Traffic = traffic
+}
+func callMiioctlItem(item Mi) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Fatalf("callMiioctlItem error: %s", err)
+		}
+	}()
+	if item.Drive == "cuco" {
+		// power
+		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
+		execSetValue(cmd, item, true)
+		// temperature
+		cmd = exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "12", "2")
+		execSetValue(cmd, item, false)
+	} else if item.Drive == "iot" {
+		// power
+		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
+		execSetValue(cmd, item, true)
+	}
 }
 
 func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
@@ -226,4 +225,21 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
 		resultData.Temperatures[item.Name] = valueFloat
 	}
+}
+
+// power-consumption:electric-power
+// on-off-count:temperature
+func parseData(data string) (power, temperature string) {
+	pattern := `(?s)(power-consumption:electric-power|on-off-count:temperature)\D+(\d+)\s+None`
+	re := regexp.MustCompile(pattern)
+	matches := re.FindAllStringSubmatch(data, -1)
+	for _, match := range matches {
+		if match[1] == "power-consumption:electric-power" {
+			power = match[2]
+		}
+		if match[1] == "on-off-count:temperature" {
+			temperature = match[2]
+		}
+	}
+	return power, temperature
 }
