@@ -111,6 +111,12 @@ func main() {
 			time.Sleep(time.Duration(daily) * time.Second)
 		}
 	}()
+	go func() {
+		for {
+			callTraffic(config.TrafficAddress)
+			time.Sleep(time.Duration(1) * time.Second)
+		}
+	}()
 	http.Handle("/metrics", promhttp.Handler())
 	http.Handle("/static", http.HandlerFunc(static))
 	err = http.ListenAndServe(":8080", nil)
@@ -131,7 +137,6 @@ func callEndpoint() {
 			log.Fatalf("callEndpoint error: %s", err)
 		}
 	}()
-	callTraffic(config.TrafficAddress)
 	mis := config.Mis
 	for _, item := range mis {
 		callMiioctlItem(item)
