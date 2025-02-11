@@ -87,12 +87,12 @@ func main() {
 	flag.Float64Var(&daily, "daily", 10, "daily seconds")
 	flag.Parse()
 	if len(filePath) == 0 {
-		log.Printf("param is null")
+		log.Fatalf("param is null")
 		return
 	}
 	file, err := os.ReadFile(filePath)
 	if err != nil {
-		log.Printf("读取配置文件失败 #%v", err)
+		log.Fatalf("读取配置文件失败 #%v", err)
 		return
 	}
 	err = yaml.Unmarshal(file, &config)
@@ -134,7 +134,7 @@ func static(w http.ResponseWriter, r *http.Request) {
 func callEndpoint() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Fatalf("callEndpoint error: %s", err)
+			log.Printf("callEndpoint error: %s", err)
 		}
 	}()
 	mis := config.Mis
@@ -145,7 +145,7 @@ func callEndpoint() {
 func callTraffic(TrafficAddress string) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Fatalf("callTraffic error: %s", err)
+			log.Printf("callTraffic error: %s", err)
 		}
 	}()
 	if TrafficAddress == "" {
@@ -154,19 +154,19 @@ func callTraffic(TrafficAddress string) {
 	httpClient := &http.Client{Timeout: 1 * time.Second}
 	resp, err := httpClient.Get(TrafficAddress)
 	if err != nil {
-		log.Fatalf("callTraffic error: %s", err)
+		log.Printf("callTraffic error: %s", err)
 		return
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	data := string(body)
 	if resp.StatusCode != 200 {
-		log.Fatalf("callTraffic error: %s", data)
+		log.Printf("callTraffic error: %s", data)
 		return
 	}
 	var traffic map[string]interface{}
 	if err := json.Unmarshal(body, &traffic); err != nil {
-		log.Fatalf("callTraffic error: %s", err)
+		log.Printf("callTraffic error: %s", err)
 		return
 	}
 	resultData.Traffic = traffic
@@ -174,7 +174,7 @@ func callTraffic(TrafficAddress string) {
 func callMiioctlItem(item Mi) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Fatalf("callMiioctlItem error: %s", err)
+			log.Printf("callMiioctlItem error: %s", err)
 		}
 	}()
 	if item.Drive == "cuco" {
