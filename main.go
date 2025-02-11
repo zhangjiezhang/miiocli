@@ -8,11 +8,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/yaml.v2"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -45,10 +45,14 @@ var (
 	)
 	filePath   = ""
 	daily      float64
-	mi         []Mi
+	config     Config
 	resultData ResultData
 )
 
+type Config struct {
+	TrafficAddress string `yaml:"trafficAddress"`
+	Mis            []Mi   `yaml:"mis"`
+}
 type Mi struct {
 	Name     string `yaml:"name"`
 	Ip       string `yaml:"ip"`
@@ -67,8 +71,9 @@ type Miio struct {
 }
 
 type ResultData struct {
-	Powers       map[string]float64 `json:"powers"`
-	Temperatures map[string]float64 `json:"temperatures"`
+	Powers       map[string]float64     `json:"powers"`
+	Temperatures map[string]float64     `json:"temperatures"`
+	Traffic      map[string]interface{} `json:"traffic"`
 }
 type Result struct {
 	Code int        `json:"code"`
@@ -89,18 +94,19 @@ func main() {
 		log.Printf("读取配置文件失败 #%v", err)
 		return
 	}
-	err = yaml.Unmarshal(file, &mi)
+	err = yaml.Unmarshal(file, &config)
 	if err != nil {
 		log.Fatalf("解析失败: %v", err)
 		return
 	}
 	//prometheus.MustRegister(miPlugPower)
 	//prometheus.MustRegister(miPlugTemperature)
-	resultData.Powers = make(map[string]float64, len(mi))
-	resultData.Temperatures = make(map[string]float64, len(mi))
+	mis := config.Mis
+	resultData.Powers = make(map[string]float64, len(mis))
+	resultData.Temperatures = make(map[string]float64, len(mis))
 	go func() {
 		for {
-			callMiioctl()
+			callEndpoint()
 			time.Sleep(time.Duration(daily) * time.Second)
 		}
 	}()
@@ -118,13 +124,17 @@ func static(w http.ResponseWriter, r *http.Request) {
 	w.Write(msg)
 }
 
-func callMiioctl() {
+func callEndpoint() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Fatalf("callMiioctl error: %s", err)
+			log.Fatalf("callEndpoint error: %s", err)
 		}
 	}()
-	for _, item := range mi {
+
+	callTraffic(config.TrafficAddress)
+
+	mis := config.Mis
+	for _, item := range mis {
 		callMiioctlItem(item)
 	}
 }
@@ -146,6 +156,34 @@ func callMiioctlItem(item Mi) {
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
 		execSetValue(cmd, item, true)
 	}
+}
+func callTraffic(TrafficAddress string) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Fatalf("callTraffic error: %s", err)
+		}
+	}()
+	if TrafficAddress == "" {
+		return
+	}
+	resp, err := http.Get(TrafficAddress)
+	if err != nil {
+		log.Fatalf("callTraffic error: %s", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	data := string(body)
+	if resp.StatusCode != 200 {
+		log.Fatalf("callTraffic error: %s", data)
+		return
+	}
+	var traffic map[string]interface{}
+	if err := json.Unmarshal(body, &traffic); err != nil {
+		log.Fatalf("callTraffic error: %s", err)
+		return
+	}
+	resultData.Traffic = traffic
 }
 
 func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
@@ -188,21 +226,4 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
 		resultData.Temperatures[item.Name] = valueFloat
 	}
-}
-
-// power-consumption:electric-power
-// on-off-count:temperature
-func parseData(data string) (power, temperature string) {
-	pattern := `(?s)(power-consumption:electric-power|on-off-count:temperature)\D+(\d+)\s+None`
-	re := regexp.MustCompile(pattern)
-	matches := re.FindAllStringSubmatch(data, -1)
-	for _, match := range matches {
-		if match[1] == "power-consumption:electric-power" {
-			power = match[2]
-		}
-		if match[1] == "on-off-count:temperature" {
-			temperature = match[2]
-		}
-	}
-	return power, temperature
 }
