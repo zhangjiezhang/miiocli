@@ -146,7 +146,8 @@ func callTraffic(TrafficAddress string) {
 	if TrafficAddress == "" {
 		return
 	}
-	resp, err := http.Get(TrafficAddress)
+	httpClient := &http.Client{Timeout: 1 * time.Second}
+	resp, err := httpClient.Get(TrafficAddress)
 	if err != nil {
 		log.Fatalf("callTraffic error: %s", err)
 		return
