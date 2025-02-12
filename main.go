@@ -154,19 +154,22 @@ func callTraffic(TrafficAddress string) {
 	httpClient := &http.Client{Timeout: 1 * time.Second}
 	resp, err := httpClient.Get(TrafficAddress)
 	if err != nil {
-		log.Printf("callTraffic error: %s", err)
+		setZero(resultData.Traffic)
+		log.Printf("callTraffic call error: %s", err)
 		return
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	data := string(body)
 	if resp.StatusCode != 200 {
-		log.Printf("callTraffic error: %s", data)
+		setZero(resultData.Traffic)
+		log.Printf("callTraffic result error: %s", data)
 		return
 	}
 	var traffic map[string]interface{}
 	if err := json.Unmarshal(body, &traffic); err != nil {
-		log.Printf("callTraffic error: %s", err)
+		setZero(resultData.Traffic)
+		log.Printf("callTraffic unmarshal error: %s", err)
 		return
 	}
 	resultData.Traffic = traffic
@@ -248,4 +251,28 @@ func parseData(data string) (power, temperature string) {
 		}
 	}
 	return power, temperature
+}
+
+func setZero(data interface{}) interface{} {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			v[key] = setZero(value)
+		}
+	case []interface{}:
+		for i, value := range v {
+			v[i] = setZero(value)
+		}
+	case int:
+		return 0
+	case float64:
+		return 0
+	case string:
+		return "0"
+	case bool:
+		return false
+	default:
+		return v
+	}
+	return data
 }
