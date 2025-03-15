@@ -182,6 +182,7 @@ func callMiioctlItem(item Mi) {
 			log.Printf("callMiioctlItem error: %s", err)
 		}
 	}()
+	log.Printf("Miioctl: %s", item.Name)
 	if item.Drive == "cuco" {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
