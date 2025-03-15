@@ -60,6 +60,7 @@ type Mi struct {
 	Token    string `yaml:"token"`
 	Drive    string `yaml:"drive"`
 	HostName string `yaml:"hostName"`
+	Asyn     bool   `yaml:"asyn"`
 }
 
 // [{'did': '11-2', 'siid': 11, 'piid': 2, 'code': 0, 'value': 508}]
@@ -105,18 +106,15 @@ func main() {
 	mis := config.Mis
 	resultData.Powers = make(map[string]float64, len(mis))
 	resultData.Temperatures = make(map[string]float64, len(mis))
-	go func() {
-		for {
-			callEndpoint()
-			time.Sleep(time.Duration(daily) * time.Second)
-		}
-	}()
+
+	callEndpoint()
 	go func() {
 		for {
 			callTraffic(config.TrafficAddress)
 			time.Sleep(time.Duration(1) * time.Second)
 		}
 	}()
+
 	http.Handle("/metrics", promhttp.Handler())
 	http.Handle("/static", http.HandlerFunc(static))
 	err = http.ListenAndServe(":8080", nil)
@@ -137,11 +135,29 @@ func callEndpoint() {
 			log.Printf("callEndpoint error: %s", err)
 		}
 	}()
+
 	mis := config.Mis
+
+	go func() {
+		for {
+			for _, item := range mis {
+				if !item.Asyn {
+					callMiioctlItem(item)
+				}
+			}
+			time.Sleep(time.Duration(daily) * time.Second)
+		}
+	}()
+
 	for _, item := range mis {
-		go func() {
-			callMiioctlItem(item)
-		}()
+		if item.Asyn {
+			go func() {
+				for {
+					callMiioctlItem(item)
+					time.Sleep(time.Duration(daily) * time.Second)
+				}
+			}()
+		}
 	}
 }
 func callTraffic(TrafficAddress string) {
