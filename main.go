@@ -139,7 +139,9 @@ func callEndpoint() {
 	}()
 	mis := config.Mis
 	for _, item := range mis {
-		callMiioctlItem(item)
+		go func() {
+			callMiioctlItem(item)
+		}()
 	}
 }
 func callTraffic(TrafficAddress string) {
