@@ -195,10 +195,9 @@ func callTraffic(TrafficAddress string) {
 func callMiioctlItem(item Mi) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("callMiioctlItem error: %s", err)
+			log.Printf("callMiioctlItem Miioctl: %s, error: %s", item.Name, err)
 		}
 	}()
-	log.Printf("Miioctl: %s", item.Name)
 	if item.Drive == "cuco" {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "11", "2")
@@ -224,7 +223,7 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 		panic(err)
 	}
 	if len(errStr) != 0 {
-		log.Printf("%s", errStr)
+		log.Printf("Miioctl: %s, errStr: %s", item.Name, errStr)
 	}
 	if len(outStr) == 0 {
 		return
@@ -235,14 +234,11 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	var miioList []Miio
 	err = json.Unmarshal([]byte(outStr), &miioList)
 	if err != nil {
-		log.Printf("%s", errStr)
+		log.Printf("Miioctl: %s, Unmarshal: %s", item.Name, errStr)
 		return
 	}
 	valueFloat := miioList[0].Value
-	log.Printf("valueFloat: %f", valueFloat)
-	if err != nil {
-		log.Printf("Error: %s", err)
-	}
+	log.Printf("Miioctl: %s, valueFloat: %f", item.Name, valueFloat)
 	if isPower {
 		miPlugPower.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
 		if len(item.HostName) > 0 {
