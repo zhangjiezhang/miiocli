@@ -207,7 +207,7 @@ func callMiioctlItem(item Mi) {
 		execSetValue(cmd, item, false)
 	} else if item.Drive == "iot" {
 		// power
-		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "--timeout", 30, "get_property_by", "3", "2")
+		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "--timeout", "30", "get_property_by", "3", "2")
 		execSetValue(cmd, item, true)
 	}
 }
