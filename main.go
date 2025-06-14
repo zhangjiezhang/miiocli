@@ -209,6 +209,10 @@ func callMiioctlItem(item Mi) {
 		// power
 		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "3", "2")
 		execSetValue(cmd, item, true)
+	} else if item.Drive == "lumi.acpartner.mcn02" {
+		// power
+		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "5", "1")
+		execSetValue(cmd, item, true)
 	}
 }
 
