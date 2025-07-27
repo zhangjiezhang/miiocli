@@ -241,7 +241,6 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	if err = json.Unmarshal([]byte(outStr), &miioList); err == nil && len(miioList) > 0 {
 		valueFloat = miioList[0].Value
 	} else {
-	        // If complex structure fails, try to parse as simple array
 	        var simpleArray []float64
 	        if err = json.Unmarshal([]byte(outStr), &simpleArray); err == nil && len(simpleArray) > 0 {
 	            valueFloat = simpleArray[0]
@@ -250,7 +249,6 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	            return
 	        }
 	}
-	valueFloat := miioList[0].Value
 	log.Printf("Miioctl: %s, valueFloat: %f", item.Name, valueFloat)
 	if isPower {
 		miPlugPower.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
