@@ -227,7 +227,7 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 		panic(err)
 	}
 	if len(errStr) != 0 {
-		log.Printf("Miioctl: %s, errStr: %s", item.Name, strings.Split(errStr, "\n")[0])
+		log.Printf("Miioctl-1: %s, errStr: %s", item.Name, strings.Split(errStr, "\n")[0])
 		return
 	}
 	if len(outStr) == 0 {
@@ -245,7 +245,7 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	        if err = json.Unmarshal([]byte(outStr), &simpleArray); err == nil && len(simpleArray) > 0 {
 	            valueFloat = simpleArray[0]
 	        } else {
-	            log.Printf("Miioctl: %s, errStr: %s", item.Name, err)
+	            log.Printf("Miioctl-2: %s, outStr: %s, errStr: %s", item.Name, outStr, err)
 	            return
 	        }
 	}
