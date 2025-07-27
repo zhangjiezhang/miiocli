@@ -8,9 +8,10 @@ COPY go.sum go.sum
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o gomiio main.go
 
 
-FROM pascall/miiocli:v0.6.0
+FROM pascall/gomiio:29
 WORKDIR /app
 EXPOSE 8080
+RUN rm -rf /usr/local/bin/gomiio:
 COPY --from=builder /app/gomiio /usr/local/bin/gomiio
 VOLUME /app
 CMD ["gomiio", "--filePath", "/app/app.yaml", "--daily", "8"]
