@@ -211,7 +211,7 @@ func callMiioctlItem(item Mi) {
 		execSetValue(cmd, item, true)
 	} else if item.Drive == "lumi.acpartner.mcn02" {
 		// power
-		cmd := exec.Command("miiocli", "genericmiot", "--ip", item.Ip, "--token", item.Token, "get_property_by", "5", "1")
+		cmd := exec.Command("miiocli", "airconditioningcompanionmcn02", "--ip", item.Ip, "--token", item.Token, "--model", item.Drive, "raw_command", "get_prop", "[\"load_power\"]")
 		execSetValue(cmd, item, true)
 	}
 }
@@ -237,10 +237,18 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	outStr = list[1]
 	outStr = strings.ReplaceAll(outStr, "'", "\"")
 	var miioList []Miio
-	err = json.Unmarshal([]byte(outStr), &miioList)
-	if err != nil {
-		log.Printf("Miioctl: %s, Unmarshal: %s", item.Name, err)
-		return
+	var valueFloat float64
+	if err = json.Unmarshal([]byte(outStr), &miioList); err == nil && len(miioList) > 0 {
+		valueFloat = miioList[0].Value
+	} else {
+	        // If complex structure fails, try to parse as simple array
+	        var simpleArray []float64
+	        if err = json.Unmarshal([]byte(outStr), &simpleArray); err == nil && len(simpleArray) > 0 {
+	            valueFloat = simpleArray[0]
+	        } else {
+	            log.Printf("Miioctl: %s, errStr: %s", item.Name, err)
+	            return
+	        }
 	}
 	valueFloat := miioList[0].Value
 	log.Printf("Miioctl: %s, valueFloat: %f", item.Name, valueFloat)
