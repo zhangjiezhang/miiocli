@@ -3,6 +3,7 @@ ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /app
 COPY main.go main.go
+COPY dashboard.html dashboard.html
 COPY go.mod go.mod
 COPY go.sum go.sum
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o gomiio main.go
