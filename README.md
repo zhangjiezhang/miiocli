@@ -17,3 +17,16 @@ For the time being I am releasing latest only since a version build takes up to 
 Command Line:
 
     docker run --rm --name miiocli clickbg/miiocli:latest miiocli --help
+
+Config example:
+
+    trafficAddress: http://127.0.0.1:9000/static
+    mis:
+      - name: plug-living-room
+        alias: 客厅插座
+        sort: 10
+        ip: 192.168.1.10
+        token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        drive: cuco
+        hostName: esxi-01
+        asyn: true

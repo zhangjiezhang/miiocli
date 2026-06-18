@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Miio 统计</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --line: #d8dee6;
+  --text: #151a22;
+  --muted: #657080;
+  --accent: #0f766e;
+  --accent-soft: #d8f3ef;
+  --warn: #b45309;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+header {
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.topbar {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+.status {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.dot.ok { background: var(--accent); }
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 22px 20px 36px;
+}
+.summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.metric {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+.label {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.value {
+  font-size: 28px;
+  line-height: 1.1;
+  font-weight: 760;
+}
+.unit {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.endpoints {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.endpoint {
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+.endpoint-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.endpoint-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.endpoint-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.endpoint-url {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  color: var(--text);
+  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 8px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.9fr);
+  gap: 18px;
+}
+section {
+  min-width: 0;
+}
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 10px;
+}
+h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+button {
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  padding: 0 12px;
+}
+button:hover { border-color: var(--accent); }
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+th, td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  background: #fbfcfd;
+}
+tr:last-child td { border-bottom: 0; }
+.name {
+  font-weight: 700;
+}
+.sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.bar {
+  min-width: 110px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e9edf2;
+  overflow: hidden;
+}
+.bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.empty {
+  background: var(--panel);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 22px;
+}
+pre {
+  margin: 0;
+  min-height: 220px;
+  max-height: 560px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.error {
+  color: #b91c1c;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .endpoints { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .summary { grid-template-columns: 1fr; }
+  th:nth-child(4), td:nth-child(4) { display: none; }
+  th, td { padding: 11px 10px; }
+  .value { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Miio 统计</h1>
+    <div class="status"><span class="dot" id="status-dot"></span><span id="status-text">等待数据</span></div>
+  </div>
+</header>
+<main>
+  <div class="summary">
+    <div class="metric"><div class="label">设备数量</div><div class="value"><span id="device-count">0</span><span class="unit">台</span></div></div>
+    <div class="metric"><div class="label">总功率</div><div class="value"><span id="total-power">--</span><span class="unit">W</span></div></div>
+    <div class="metric"><div class="label">平均温度</div><div class="value"><span id="avg-temperature">--</span><span class="unit">°C</span></div></div>
+    <div class="metric"><div class="label">最后刷新</div><div class="value"><span id="last-refresh">--:--:--</span></div></div>
+  </div>
+  <div class="endpoints">
+    <div class="endpoint">
+      <div class="endpoint-head">
+        <div class="endpoint-title">JSON 接口</div>
+        <div class="endpoint-actions">
+          <button type="button" data-copy="/static">复制</button>
+          <button type="button" data-open="/static">打开</button>
+        </div>
+      </div>
+      <code class="endpoint-url" id="static-url">/static</code>
+    </div>
+    <div class="endpoint">
+      <div class="endpoint-head">
+        <div class="endpoint-title">Prometheus 接口</div>
+        <div class="endpoint-actions">
+          <button type="button" data-copy="/metrics">复制</button>
+          <button type="button" data-open="/metrics">打开</button>
+        </div>
+      </div>
+      <code class="endpoint-url" id="metrics-url">/metrics</code>
+    </div>
+  </div>
+  <div class="layout">
+    <section>
+      <div class="section-title">
+        <h2>设备</h2>
+        <div class="actions"><button type="button" id="refresh">刷新</button></div>
+      </div>
+      <div id="device-view" class="empty">暂无设备数据</div>
+    </section>
+    <section>
+      <div class="section-title">
+        <h2>流量</h2>
+      </div>
+      <pre id="traffic">{}</pre>
+    </section>
+  </div>
+</main>
+<script>
+const els = {
+  statusDot: document.getElementById("status-dot"),
+  statusText: document.getElementById("status-text"),
+  deviceCount: document.getElementById("device-count"),
+  totalPower: document.getElementById("total-power"),
+  avgTemperature: document.getElementById("avg-temperature"),
+  lastRefresh: document.getElementById("last-refresh"),
+  deviceView: document.getElementById("device-view"),
+  traffic: document.getElementById("traffic"),
+  refresh: document.getElementById("refresh"),
+  staticUrl: document.getElementById("static-url"),
+  metricsUrl: document.getElementById("metrics-url")
+};
+
+const endpointUrls = {
+  "/static": new URL("/static", window.location.origin).href,
+  "/metrics": new URL("/metrics", window.location.origin).href
+};
+
+els.staticUrl.textContent = endpointUrls["/static"];
+els.metricsUrl.textContent = endpointUrls["/metrics"];
+
+function fmt(value, digits = 1) {
+  return Number.isFinite(value) ? value.toFixed(digits) : "--";
+}
+
+function resolveDevices(data) {
+  if (Array.isArray(data.devices) && data.devices.length) {
+    return data.devices.slice();
+  }
+  const names = new Set([...Object.keys(data.powers || {}), ...Object.keys(data.temperatures || {})]);
+  return Array.from(names).sort().map((name) => ({
+    name,
+    alias: name,
+    power: data.powers ? data.powers[name] : undefined,
+    temperature: data.temperatures ? data.temperatures[name] : undefined
+  }));
+}
+
+function renderDevices(devices) {
+  if (!devices.length) {
+    els.deviceView.className = "empty";
+    els.deviceView.textContent = "暂无设备数据";
+    return;
+  }
+  const maxPower = Math.max(1, ...devices.map((item) => Number(item.power) || 0));
+  const rows = devices.map((item) => {
+    const power = Number(item.power);
+    const temperature = Number(item.temperature);
+    const width = Number.isFinite(power) ? Math.min(100, Math.max(0, power / maxPower * 100)) : 0;
+    return "<tr>" +
+      "<td><div class=\"name\">" + escapeHtml(item.alias || item.name) + "</div><div class=\"sub\">#" + escapeHtml(item.sort ?? 0) + " · " + escapeHtml(item.name || "") + "</div></td>" +
+      "<td class=\"num\">" + fmt(power) + " W</td>" +
+      "<td class=\"num\">" + fmt(temperature) + " °C</td>" +
+      "<td><div class=\"bar\"><span style=\"width:" + width.toFixed(0) + "%\"></span></div></td>" +
+      "</tr>";
+  }).join("");
+  els.deviceView.className = "";
+  els.deviceView.innerHTML = "<table><thead><tr><th>设备</th><th>功率</th><th>温度</th><th>占比</th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  }[ch]));
+}
+
+async function loadData() {
+  try {
+    els.statusText.textContent = "刷新中";
+    const response = await fetch("/static", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("HTTP " + response.status);
+    }
+    const payload = await response.json();
+    const data = payload.data || {};
+    const devices = resolveDevices(data);
+    const powers = devices.map((item) => Number(item.power)).filter(Number.isFinite);
+    const temperatures = devices.map((item) => Number(item.temperature)).filter(Number.isFinite);
+    const totalPower = powers.reduce((sum, value) => sum + value, 0);
+    const avgTemperature = temperatures.length ? temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length : NaN;
+
+    els.deviceCount.textContent = String(devices.length);
+    els.totalPower.textContent = fmt(powers.length ? totalPower : NaN);
+    els.avgTemperature.textContent = fmt(avgTemperature);
+    els.lastRefresh.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    els.traffic.textContent = JSON.stringify(data.traffic || {}, null, 2);
+    renderDevices(devices);
+
+    els.statusDot.classList.add("ok");
+    els.statusText.textContent = "正常";
+  } catch (err) {
+    els.statusDot.classList.remove("ok");
+    els.statusText.innerHTML = "<span class=\"error\">" + escapeHtml(err.message) + "</span>";
+  }
+}
+
+els.refresh.addEventListener("click", loadData);
+document.querySelectorAll("[data-copy]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const path = button.getAttribute("data-copy");
+    await copyText(endpointUrls[path], button);
+  });
+});
+document.querySelectorAll("[data-open]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const path = button.getAttribute("data-open");
+    window.open(endpointUrls[path], "_blank", "noopener,noreferrer");
+  });
+});
+loadData();
+setInterval(loadData, 5000);
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    const input = document.createElement("input");
+    input.value = text;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+  const original = button.textContent;
+  button.textContent = "已复制";
+  setTimeout(() => {
+    button.textContent = original;
+  }, 1200);
+}
+</script>
+</body>
+</html>

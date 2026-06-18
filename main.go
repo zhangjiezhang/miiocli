@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
@@ -14,7 +16,9 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,14 +28,14 @@ var (
 			Name: "mi_plug_power",
 			Help: "小米智能插座功耗",
 		},
-		[]string{"name"},
+		[]string{"name", "alias"},
 	)
 	miPlugTemperature = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "mi_plug_temperature",
 			Help: "小米智能插座温度",
 		},
-		[]string{"name"},
+		[]string{"name", "alias"},
 	)
 	esxiTemperature = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -42,12 +46,13 @@ var (
 				"name":    "System Board 1 Pwr Consumption",
 			},
 		},
-		[]string{"host_name"},
+		[]string{"host_name", "alias"},
 	)
 	filePath   = ""
 	daily      float64
 	config     Config
 	resultData ResultData
+	resultMu   sync.RWMutex
 )
 
 type Config struct {
@@ -56,6 +61,8 @@ type Config struct {
 }
 type Mi struct {
 	Name     string `yaml:"name"`
+	Alias    string `yaml:"alias"`
+	Sort     int    `yaml:"sort"`
 	Ip       string `yaml:"ip"`
 	Token    string `yaml:"token"`
 	Drive    string `yaml:"drive"`
@@ -76,12 +83,23 @@ type ResultData struct {
 	Powers       map[string]float64     `json:"powers"`
 	Temperatures map[string]float64     `json:"temperatures"`
 	Traffic      map[string]interface{} `json:"traffic"`
+	Devices      []DeviceData           `json:"devices,omitempty"`
+}
+type DeviceData struct {
+	Name        string   `json:"name"`
+	Alias       string   `json:"alias"`
+	Sort        int      `json:"sort"`
+	Power       *float64 `json:"power,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
 }
 type Result struct {
 	Code int        `json:"code"`
 	Msg  string     `json:"msg"`
 	Data ResultData `json:"data"`
 }
+
+//go:embed dashboard.html
+var dashboardHTML string
 
 func main() {
 	flag.StringVar(&filePath, "filePath", "./app.yaml", "config file path")
@@ -115,18 +133,56 @@ func main() {
 		}
 	}()
 
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("/metrics", http.HandlerFunc(metrics))
 	http.Handle("/static", http.HandlerFunc(static))
+	http.Handle("/", http.HandlerFunc(dashboard))
+	http.Handle("/dashboard", http.HandlerFunc(dashboard))
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)
 	}
 }
 
+func dashboard(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" && r.URL.Path != "/dashboard" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("content-type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(dashboardHTML))
+}
+
+func metrics(w http.ResponseWriter, r *http.Request) {
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sort.Slice(mfs, func(i, j int) bool {
+		return mfs[i].GetName() < mfs[j].GetName()
+	})
+	for _, mf := range mfs {
+		sort.Slice(mf.Metric, func(i, j int) bool {
+			return metricSortKey(mf.Metric[i]) < metricSortKey(mf.Metric[j])
+		})
+	}
+	w.Header().Set("Content-Type", string(expfmt.NewFormat(expfmt.TypeTextPlain)))
+	for _, mf := range mfs {
+		if _, err := expfmt.MetricFamilyToText(w, mf); err != nil {
+			log.Printf("write metrics error: %s", err)
+			return
+		}
+	}
+}
+
 func static(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	msg, _ := json.Marshal(Result{Code: 200, Msg: "成功", Data: resultData})
-	w.Write(msg)
+	msg, err := json.Marshal(Result{Code: 200, Msg: "成功", Data: snapshotResultData()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(msg)
 }
 
 func callEndpoint() {
@@ -172,7 +228,9 @@ func callTraffic(TrafficAddress string) {
 	httpClient := &http.Client{Timeout: 1 * time.Second}
 	resp, err := httpClient.Get(TrafficAddress)
 	if err != nil {
+		resultMu.Lock()
 		setZero(resultData.Traffic)
+		resultMu.Unlock()
 		log.Printf("callTraffic call error: %s", err)
 		return
 	}
@@ -180,17 +238,23 @@ func callTraffic(TrafficAddress string) {
 	body, err := ioutil.ReadAll(resp.Body)
 	data := string(body)
 	if resp.StatusCode != 200 {
+		resultMu.Lock()
 		setZero(resultData.Traffic)
+		resultMu.Unlock()
 		log.Printf("callTraffic result error: %s", data)
 		return
 	}
 	var traffic map[string]interface{}
 	if err := json.Unmarshal(body, &traffic); err != nil {
+		resultMu.Lock()
 		setZero(resultData.Traffic)
+		resultMu.Unlock()
 		log.Printf("callTraffic unmarshal error: %s", err)
 		return
 	}
+	resultMu.Lock()
 	resultData.Traffic = traffic
+	resultMu.Unlock()
 }
 func callMiioctlItem(item Mi) {
 	defer func() {
@@ -241,24 +305,122 @@ func execSetValue(cmd *exec.Cmd, item Mi, isPower bool) {
 	if err = json.Unmarshal([]byte(outStr), &miioList); err == nil && len(miioList) > 0 {
 		valueFloat = miioList[0].Value
 	} else {
-	        var simpleArray []float64
-	        if err = json.Unmarshal([]byte(outStr), &simpleArray); err == nil && len(simpleArray) > 0 {
-	            valueFloat = simpleArray[0]
-	        } else {
-	            log.Printf("Miioctl-2: %s, outStr: %s, errStr: %s", item.Name, outStr, err)
-	            return
-	        }
+		var simpleArray []float64
+		if err = json.Unmarshal([]byte(outStr), &simpleArray); err == nil && len(simpleArray) > 0 {
+			valueFloat = simpleArray[0]
+		} else {
+			log.Printf("Miioctl-2: %s, outStr: %s, errStr: %s", item.Name, outStr, err)
+			return
+		}
 	}
 	log.Printf("Miioctl: %s, valueFloat: %f", item.Name, valueFloat)
 	if isPower {
-		miPlugPower.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
+		miPlugPower.With(prometheus.Labels{"name": item.Name, "alias": itemAlias(item)}).Set(valueFloat)
 		if len(item.HostName) > 0 {
-			esxiTemperature.With(prometheus.Labels{"host_name": item.HostName}).Set(valueFloat)
+			esxiTemperature.With(prometheus.Labels{"host_name": item.HostName, "alias": itemAlias(item)}).Set(valueFloat)
 		}
+		resultMu.Lock()
 		resultData.Powers[item.Name] = valueFloat
+		resultMu.Unlock()
 	} else {
-		miPlugTemperature.With(prometheus.Labels{"name": item.Name}).Set(valueFloat)
+		miPlugTemperature.With(prometheus.Labels{"name": item.Name, "alias": itemAlias(item)}).Set(valueFloat)
+		resultMu.Lock()
 		resultData.Temperatures[item.Name] = valueFloat
+		resultMu.Unlock()
+	}
+}
+
+func snapshotResultData() ResultData {
+	resultMu.RLock()
+	defer resultMu.RUnlock()
+
+	data := ResultData{
+		Powers:       make(map[string]float64, len(resultData.Powers)),
+		Temperatures: make(map[string]float64, len(resultData.Temperatures)),
+		Traffic:      copyMap(resultData.Traffic),
+		Devices:      make([]DeviceData, 0, len(config.Mis)),
+	}
+	for key, value := range resultData.Powers {
+		data.Powers[key] = value
+	}
+	for key, value := range resultData.Temperatures {
+		data.Temperatures[key] = value
+	}
+	for _, item := range sortedMis() {
+		device := DeviceData{
+			Name:  item.Name,
+			Alias: itemAlias(item),
+			Sort:  item.Sort,
+		}
+		if value, ok := resultData.Powers[item.Name]; ok {
+			valueCopy := value
+			device.Power = &valueCopy
+		}
+		if value, ok := resultData.Temperatures[item.Name]; ok {
+			valueCopy := value
+			device.Temperature = &valueCopy
+		}
+		data.Devices = append(data.Devices, device)
+	}
+	return data
+}
+
+func sortedMis() []Mi {
+	mis := make([]Mi, len(config.Mis))
+	copy(mis, config.Mis)
+	sort.SliceStable(mis, func(i, j int) bool {
+		if mis[i].Sort != mis[j].Sort {
+			return mis[i].Sort < mis[j].Sort
+		}
+		leftAlias := itemAlias(mis[i])
+		rightAlias := itemAlias(mis[j])
+		if leftAlias != rightAlias {
+			return leftAlias < rightAlias
+		}
+		return mis[i].Name < mis[j].Name
+	})
+	return mis
+}
+
+func itemAlias(item Mi) string {
+	if item.Alias != "" {
+		return item.Alias
+	}
+	return item.Name
+}
+
+func metricSortKey(metric *dto.Metric) string {
+	var parts []string
+	for _, pair := range metric.Label {
+		parts = append(parts, pair.GetName()+"="+pair.GetValue())
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
+func copyMap(data map[string]interface{}) map[string]interface{} {
+	if data == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(data))
+	for key, value := range data {
+		result[key] = copyValue(value)
+	}
+	return result
+}
+
+func copyValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		return copyMap(v)
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, item := range v {
+			result[i] = copyValue(item)
+		}
+		return result
+	default:
+		return v
 	}
 }
 
