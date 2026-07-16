@@ -2,11 +2,12 @@ FROM golang:alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
 COPY main.go voice_websocket.go aliyun_tts.go ./
 COPY dashboard.html dashboard.html
-COPY go.mod go.mod
-COPY go.sum go.sum
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o gomiio .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -o gomiio .
 
 
 FROM pascall/gomiio:29
