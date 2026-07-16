@@ -32,6 +32,9 @@ Config example:
         accessKeyId: your-aliyun-access-key-id
         accessKeySecret: your-aliyun-access-key-secret
         voice: xiaoyun
+    ota:
+      directory: ./releases
+      adminToken: replace-with-an-ota-admin-secret
     mis:
       - name: plug-living-room
         alias: 客厅插座
@@ -69,3 +72,22 @@ The response returns `202 Accepted` and a `stream_id`. Configure either an Acces
 - [NLS Go SDK streaming TTS documentation](https://github.com/aliyun/alibabacloud-nls-go-sdk/blob/master/docs/TTS.md): synthesis parameters and callback behavior.
 
 The authoritative voice list is the list shown in the NLS console after login; it varies by account, region, and enabled service entitlements.
+
+**OTA service**
+--
+Open `http://<server>:8080/ota` to upload and manage ESP32 firmware releases. The admin page and release APIs use `ota.adminToken`; ESP32 check and download requests use the device ID and token configured under `voice.devices`.
+
+Device endpoints:
+
+- `GET /v1/ota/check` with `Authorization: Bearer <device-token>`, `X-Device-ID`, `X-Firmware-Version`, and `X-OTA-Channel` headers. Returns `204` when no newer release exists.
+- `GET /v1/ota/firmware/<release-id>.bin` with the same device credentials.
+
+Admin endpoints:
+
+- `GET /v1/ota/releases`
+- `POST /v1/ota/releases` as multipart form data with `firmware`, `version`, `channel`, `mandatory`, and `notes`.
+- `DELETE /v1/ota/releases/<release-id>`
+
+The uploaded version must match the ESP-IDF application version embedded in the `.bin`. Set the firmware version in the project root `version.txt` before building and uploading.
+
+Before the first OTA release, flash the ESP32 once over USB with the new partition table, bootloader, OTA data, and factory application. Later releases only require uploading `build/lvgl.bin` on the OTA page. Changing from the old single factory partition to A/B slots cannot be done safely by an application-only OTA.

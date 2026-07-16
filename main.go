@@ -52,6 +52,7 @@ var (
 	daily      float64
 	config     Config
 	voiceHub   *VoiceHub
+	otaService *OTAService
 	resultData ResultData
 	resultMu   sync.RWMutex
 )
@@ -60,6 +61,7 @@ type Config struct {
 	TrafficAddress string      `yaml:"trafficAddress"`
 	Mis            []Mi        `yaml:"mis"`
 	Voice          VoiceConfig `yaml:"voice"`
+	OTA            OTAConfig   `yaml:"ota"`
 }
 type Mi struct {
 	Name     string `yaml:"name"`
@@ -103,6 +105,9 @@ type Result struct {
 //go:embed dashboard.html
 var dashboardHTML string
 
+//go:embed ota.html
+var otaHTML string
+
 func main() {
 	flag.StringVar(&filePath, "filePath", "./app.yaml", "config file path")
 	flag.Float64Var(&daily, "daily", 10, "daily seconds")
@@ -129,6 +134,10 @@ func main() {
 
 	callEndpoint()
 	voiceHub = NewVoiceHub(config.Voice)
+	otaService, err = NewOTAService(config.OTA, config.Voice.Devices)
+	if err != nil {
+		log.Printf("OTA service disabled: %v", err)
+	}
 	ttsService, err := NewAliyunTTSService(config.Voice.TTS, config.Voice.APIToken, voiceHub)
 	if err != nil {
 		log.Printf("voice TTS endpoint disabled: %v", err)
@@ -145,6 +154,13 @@ func main() {
 	http.Handle("/", http.HandlerFunc(dashboard))
 	http.Handle("/dashboard", http.HandlerFunc(dashboard))
 	http.Handle(voiceHub.Path(), voiceHub)
+	if otaService != nil {
+		http.Handle("/ota", http.HandlerFunc(otaPage))
+		http.Handle("/v1/ota/check", http.HandlerFunc(otaService.HandleCheck))
+		http.Handle("/v1/ota/firmware/", http.HandlerFunc(otaService.HandleFirmware))
+		http.Handle("/v1/ota/releases", http.HandlerFunc(otaService.HandleReleases))
+		http.Handle("/v1/ota/releases/", http.HandlerFunc(otaService.HandleRelease))
+	}
 	if ttsService != nil {
 		http.Handle("/v1/devices/", ttsService)
 	}
@@ -152,6 +168,15 @@ func main() {
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)
 	}
+}
+
+func otaPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/ota" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("content-type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(otaHTML))
 }
 
 func dashboard(w http.ResponseWriter, r *http.Request) {

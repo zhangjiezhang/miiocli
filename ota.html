@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OTA 版本管理</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0f14;--panel:#131920;--line:#28313b;--text:#e9eef3;--muted:#8995a3;--cyan:#41c7d9;--green:#53c78b;--amber:#e9b949;--red:#ef6a6a}
+    *{box-sizing:border-box;letter-spacing:0}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,"Segoe UI",sans-serif}
+    button,input,select,textarea{font:inherit}
+    header{height:58px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 max(20px,calc((100vw - 1120px)/2))}
+    h1{font-size:17px;margin:0;font-weight:650}.brand{display:flex;align-items:center;gap:11px}.mark{width:9px;height:24px;background:var(--cyan);border-radius:2px}
+    .token{display:flex;gap:8px;align-items:center}.token input{width:230px}
+    main{max-width:1120px;margin:0 auto;padding:26px 20px 50px}
+    section{border-bottom:1px solid var(--line);padding-bottom:26px;margin-bottom:26px}
+    h2{font-size:14px;margin:0 0 16px;color:#c9d2db;font-weight:650}
+    form{display:grid;grid-template-columns:1fr 145px 145px 120px;gap:12px;align-items:end}
+    label{display:grid;gap:6px;color:var(--muted);font-size:12px}
+    input,select,textarea{width:100%;border:1px solid var(--line);border-radius:5px;background:#0e141a;color:var(--text);padding:9px 10px;outline:none}
+    input:focus,select:focus,textarea:focus{border-color:var(--cyan)}
+    input[type=file]{padding:6px}.notes{grid-column:1/4}.check{display:flex;align-items:center;gap:8px;height:38px}.check input{width:16px;height:16px;accent-color:var(--amber)}
+    button{border:1px solid var(--line);border-radius:5px;background:#18212a;color:var(--text);height:38px;padding:0 14px;cursor:pointer;font-weight:600}
+    button:hover{border-color:#465361}button.primary{background:var(--cyan);border-color:var(--cyan);color:#061014}button.danger{color:var(--red);height:30px;padding:0 10px;background:transparent}
+    button:disabled{opacity:.45;cursor:wait}
+    .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.status{color:var(--muted);font-size:12px}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{text-align:left;border-bottom:1px solid var(--line);padding:12px 10px;vertical-align:middle}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600}td{overflow-wrap:anywhere}
+    .version{font:600 14px ui-monospace,SFMono-Regular,Consolas,monospace}.badge{display:inline-block;border:1px solid var(--line);border-radius:3px;padding:2px 7px;font-size:11px;color:var(--cyan)}
+    .badge.beta{color:var(--amber)}.mandatory{color:var(--red);font-size:11px}.hash{font:11px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted)}
+    .empty{text-align:center;color:var(--muted);padding:42px}.toast{position:fixed;right:20px;bottom:20px;padding:11px 14px;border:1px solid var(--line);border-radius:5px;background:#18212a;display:none;max-width:360px}.toast.error{border-color:var(--red)}
+    @media(max-width:760px){header{height:auto;min-height:58px;padding:12px 16px;align-items:stretch;gap:12px;flex-direction:column}header .token{width:auto;display:grid;grid-template-columns:minmax(0,1fr) 64px}.token input{width:100%;min-width:0}main{padding:20px 14px}form{grid-template-columns:1fr 1fr}.firmware,.notes{grid-column:1/-1}.check{grid-column:1}table{display:block;overflow-x:auto}thead,tbody{min-width:760px;display:table;width:100%;table-layout:fixed}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark"></span><h1>OTA 版本管理</h1></div>
+    <div class="token"><input id="token" type="password" autocomplete="current-password" placeholder="管理员 Token"><button id="saveToken">连接</button></div>
+  </header>
+  <main>
+    <section>
+      <h2>发布固件</h2>
+      <form id="uploadForm">
+        <label class="firmware">固件文件<input name="firmware" type="file" accept=".bin,application/octet-stream" required></label>
+        <label>版本<input name="version" placeholder="1.1.0" pattern="v?[0-9]+(\.[0-9]+){0,3}(-[A-Za-z0-9.-]+)?" required></label>
+        <label>通道<select name="channel"><option value="stable">Stable</option><option value="beta">Beta</option></select></label>
+        <label class="check"><input name="mandatory" type="checkbox">强制升级</label>
+        <label class="notes">发布说明<textarea name="notes" rows="2" maxlength="500"></textarea></label>
+        <button class="primary" type="submit">发布版本</button>
+      </form>
+    </section>
+    <section>
+      <div class="toolbar"><h2>版本列表</h2><button id="refresh">刷新</button></div>
+      <div class="status" id="status">尚未连接</div>
+      <table>
+        <thead><tr><th style="width:14%">版本</th><th style="width:11%">通道</th><th style="width:15%">大小 / 校验</th><th>发布说明</th><th style="width:18%">发布时间</th><th style="width:72px"></th></tr></thead>
+        <tbody id="releaseRows"><tr><td colspan="6" class="empty">暂无数据</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script>
+    const $=id=>document.getElementById(id);
+    const tokenInput=$("token"), rows=$("releaseRows"), status=$("status"), form=$("uploadForm");
+    tokenInput.value=sessionStorage.getItem("ota_token")||"";
+    const headers=()=>({"Authorization":"Bearer "+tokenInput.value});
+    function toast(message,error=false){const el=$("toast");el.textContent=message;el.className="toast"+(error?" error":"");el.style.display="block";setTimeout(()=>el.style.display="none",3200)}
+    function formatSize(bytes){return bytes<1048576?(bytes/1024).toFixed(0)+" KB":(bytes/1048576).toFixed(2)+" MB"}
+    function escapeHTML(value){const el=document.createElement("span");el.textContent=value||"";return el.innerHTML}
+    async function load(){
+      status.textContent="正在加载...";
+      try{
+        const response=await fetch("/v1/ota/releases",{headers:headers()});
+        if(!response.ok)throw new Error(response.status===401?"管理员 Token 无效":"加载失败 ("+response.status+")");
+        const data=await response.json();
+        status.textContent="共 "+data.releases.length+" 个版本";
+        rows.innerHTML=data.releases.length?data.releases.map(r=>`<tr>
+          <td><span class="version">${escapeHTML(r.version)}</span> ${r.mandatory?'<span class="mandatory">强制</span>':""}</td>
+          <td><span class="badge ${r.channel==="beta"?"beta":""}">${escapeHTML(r.channel)}</span></td>
+          <td>${formatSize(r.size)}<br><span class="hash" title="${r.sha256}">${r.sha256.slice(0,12)}...</span></td>
+          <td>${escapeHTML(r.notes)||'<span class="status">-</span>'}</td>
+          <td>${new Date(r.created_at).toLocaleString()}</td>
+          <td><button class="danger" data-delete="${r.id}">删除</button></td>
+        </tr>`).join(""):'<tr><td colspan="6" class="empty">暂无版本</td></tr>';
+      }catch(error){status.textContent=error.message;rows.innerHTML='<tr><td colspan="6" class="empty">无法加载版本</td></tr>';toast(error.message,true)}
+    }
+    $("saveToken").onclick=()=>{sessionStorage.setItem("ota_token",tokenInput.value);load()};
+    $("refresh").onclick=load;
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      const button=form.querySelector("button[type=submit]");button.disabled=true;
+      const data=new FormData(form);data.set("mandatory",form.elements.mandatory.checked?"true":"false");
+      try{
+        const response=await fetch("/v1/ota/releases",{method:"POST",headers:headers(),body:data});
+        if(!response.ok)throw new Error((await response.text()).trim()||"发布失败");
+        form.reset();toast("版本已发布");await load();
+      }catch(error){toast(error.message,true)}finally{button.disabled=false}
+    };
+    rows.onclick=async event=>{
+      const button=event.target.closest("[data-delete]");if(!button)return;
+      if(!confirm("确定删除这个版本？"))return;
+      button.disabled=true;
+      const response=await fetch("/v1/ota/releases/"+encodeURIComponent(button.dataset.delete),{method:"DELETE",headers:headers()});
+      if(response.ok){toast("版本已删除");load()}else{button.disabled=false;toast("删除失败",true)}
+    };
+    if(tokenInput.value)load();
+  </script>
+</body>
+</html>

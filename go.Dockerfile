@@ -5,8 +5,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY main.go voice_websocket.go aliyun_tts.go ./
-COPY dashboard.html dashboard.html
+COPY main.go voice_websocket.go aliyun_tts.go ota_service.go ./
+COPY dashboard.html ota.html ./
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -o gomiio .
 
 
