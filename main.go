@@ -57,8 +57,8 @@ var (
 )
 
 type Config struct {
-	TrafficAddress string `yaml:"trafficAddress"`
-	Mis            []Mi   `yaml:"mis"`
+	TrafficAddress string      `yaml:"trafficAddress"`
+	Mis            []Mi        `yaml:"mis"`
 	Voice          VoiceConfig `yaml:"voice"`
 }
 type Mi struct {
@@ -218,12 +218,13 @@ func callEndpoint() {
 
 	for _, item := range mis {
 		if item.Asyn {
-			go func() {
+			go func(mi Mi) {
+				log.Printf("starting asynchronous poller for %s", mi.Name)
 				for {
-					callMiioctlItem(item)
+					callMiioctlItem(mi)
 					time.Sleep(time.Duration(daily) * time.Second)
 				}
-			}()
+			}(item)
 		}
 	}
 }
