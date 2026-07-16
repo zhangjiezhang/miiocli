@@ -3,6 +3,8 @@ module cn.pascall/gomiio
 go 1.21.8
 
 require (
+	github.com/aliyun/alibabacloud-nls-go-sdk v1.1.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.19.1
 	gopkg.in/yaml.v2 v2.4.0
 )

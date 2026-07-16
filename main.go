@@ -51,6 +51,7 @@ var (
 	filePath   = ""
 	daily      float64
 	config     Config
+	voiceHub   *VoiceHub
 	resultData ResultData
 	resultMu   sync.RWMutex
 )
@@ -58,6 +59,7 @@ var (
 type Config struct {
 	TrafficAddress string `yaml:"trafficAddress"`
 	Mis            []Mi   `yaml:"mis"`
+	Voice          VoiceConfig `yaml:"voice"`
 }
 type Mi struct {
 	Name     string `yaml:"name"`
@@ -126,6 +128,11 @@ func main() {
 	resultData.Temperatures = make(map[string]float64, len(mis))
 
 	callEndpoint()
+	voiceHub = NewVoiceHub(config.Voice)
+	ttsService, err := NewAliyunTTSService(config.Voice.TTS, config.Voice.APIToken, voiceHub)
+	if err != nil {
+		log.Printf("voice TTS endpoint disabled: %v", err)
+	}
 	go func() {
 		for {
 			callTraffic(config.TrafficAddress)
@@ -137,6 +144,10 @@ func main() {
 	http.Handle("/static", http.HandlerFunc(static))
 	http.Handle("/", http.HandlerFunc(dashboard))
 	http.Handle("/dashboard", http.HandlerFunc(dashboard))
+	http.Handle(voiceHub.Path(), voiceHub)
+	if ttsService != nil {
+		http.Handle("/v1/devices/", ttsService)
+	}
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)

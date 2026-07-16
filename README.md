@@ -21,6 +21,17 @@ Command Line:
 Config example:
 
     trafficAddress: http://127.0.0.1:9000/static
+    voice:
+      path: /v1/device/ws
+      apiToken: replace-with-an-api-secret
+      devices:
+        szp-001:
+          token: replace-with-a-device-secret
+      tts:
+        appKey: your-aliyun-nls-app-key
+        accessKeyId: your-aliyun-access-key-id
+        accessKeySecret: your-aliyun-access-key-secret
+        voice: xiaoyun
     mis:
       - name: plug-living-room
         alias: 客厅插座
@@ -30,3 +41,30 @@ Config example:
         drive: cuco
         hostName: esxi-01
         asyn: true
+
+**Voice WebSocket**
+--
+The ESP32 connects to `ws://<server>:8080/v1/device/ws` and first sends a `hello` JSON message with its `device_id` and token. The server keeps one live connection per configured device.
+
+Audio producers call `VoiceHub.StartAudio`, `VoiceHub.SendOpus`, and `VoiceHub.EndAudio`. `SendOpus` writes one raw 16 kHz mono Opus packet per WebSocket binary message; packets must not exceed 1024 bytes.
+
+**Aliyun TTS API**
+--
+Send a protected request to start a stream on an online device. The server uses Alibaba Cloud NLS streaming synthesis with native 16 kHz Opus output and forwards each packet to the device.
+
+```bash
+curl -X POST http://<server>:8080/v1/devices/szp-001/speak \
+  -H "Authorization: Bearer replace-with-an-api-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"服务器温度过高，请及时处理。","voice":"xiaoyun"}'
+```
+
+The response returns `202 Accepted` and a `stream_id`. Configure either an AccessKey pair for automatic NLS token renewal or `voice.tts.token` for a short-lived token.
+
+**Official references**
+---
+- [Alibaba Cloud Intelligent Speech Interaction console](https://nls-portal.console.aliyun.com/): create an NLS project, obtain its `appKey`, and view the voices available to the current account.
+- [Alibaba Cloud NLS Go SDK](https://github.com/aliyun/alibabacloud-nls-go-sdk): the official SDK used by this service.
+- [NLS Go SDK streaming TTS documentation](https://github.com/aliyun/alibabacloud-nls-go-sdk/blob/master/docs/TTS.md): synthesis parameters and callback behavior.
+
+The authoritative voice list is the list shown in the NLS console after login; it varies by account, region, and enabled service entitlements.
