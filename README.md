@@ -46,11 +46,11 @@ Config example:
 --
 The ESP32 connects to `ws://<server>:8080/v1/device/ws` and first sends a `hello` JSON message with its `device_id` and token. The server keeps one live connection per configured device.
 
-Audio producers call `VoiceHub.StartAudio`, `VoiceHub.SendOpus`, and `VoiceHub.EndAudio`. `SendOpus` writes one raw 16 kHz mono Opus packet per WebSocket binary message; packets must not exceed 1024 bytes.
+Audio producers may call `VoiceHub.StartAudio` and `VoiceHub.SendOpus` for raw 16 kHz mono Opus, or `VoiceHub.StartPCM` and `VoiceHub.SendPCM` for signed 16-bit little-endian PCM at 16 kHz mono. Binary WebSocket messages must not exceed 1024 bytes.
 
 **Aliyun TTS API**
 --
-Send a protected request to start a stream on an online device. The server uses Alibaba Cloud NLS streaming synthesis with native 16 kHz Opus output and forwards each packet to the device.
+Send a protected request to start a stream on an online device. The server uses Alibaba Cloud NLS streaming synthesis with native 16 kHz PCM output and forwards it to the device as `pcm_s16le` frames.
 
 ```bash
 curl -X POST http://<server>:8080/v1/devices/szp-001/speak \

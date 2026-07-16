@@ -43,8 +43,8 @@ type speakResponse struct {
 	Status   string `json:"status"`
 }
 
-// AliyunTTSService exposes a protected HTTP endpoint and streams the native
-// NLS Opus packets to an ESP32 session managed by VoiceHub.
+// AliyunTTSService exposes a protected HTTP endpoint and streams native NLS
+// PCM to an ESP32 session managed by VoiceHub.
 type AliyunTTSService struct {
 	cfg      AliyunTTSConfig
 	apiToken string
@@ -145,8 +145,8 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 		func(message string, _ interface{}) {
 			run.setError(fmt.Errorf("Alibaba Cloud TTS failed: %s", message))
 		},
-		func(opusFrame []byte, _ interface{}) {
-			if err := run.hub.SendOpus(run.deviceID, run.streamID, opusFrame); err != nil {
+		func(pcm []byte, _ interface{}) {
+			if err := run.hub.SendPCM(run.deviceID, run.streamID, pcm); err != nil {
 				run.setError(err)
 			}
 		},
@@ -160,14 +160,14 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 	}
 	defer tts.Shutdown()
 
-	if err := s.hub.StartAudio(deviceID, streamID); err != nil {
+	if err := s.hub.StartPCM(deviceID, streamID); err != nil {
 		log.Printf("TTS stream start failed for %s: %v", deviceID, err)
 		return
 	}
 
 	param := nls.DefaultSpeechSynthesisParam()
 	param.Voice = voice
-	param.Format = nls.OPUS
+	param.Format = nls.PCM
 	param.SampleRate = 16000
 	done, err := tts.Start(text, param, nil)
 	if err != nil {

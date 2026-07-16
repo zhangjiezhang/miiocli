@@ -15,10 +15,12 @@ import (
 )
 
 const (
-	defaultVoicePath = "/v1/device/ws"
-	voiceReadWait    = 75 * time.Second
-	voicePingPeriod  = 20 * time.Second
-	maxOpusFrameSize = 1024
+	defaultVoicePath  = "/v1/device/ws"
+	voiceReadWait     = 75 * time.Second
+	voicePingPeriod   = 20 * time.Second
+	maxAudioFrameSize = 1024
+	codecOpus         = "opus"
+	codecPCMS16LE     = "pcm_s16le"
 )
 
 // VoiceConfig configures the XiaoZhi-compatible device WebSocket endpoint.
@@ -40,9 +42,13 @@ type voiceHello struct {
 }
 
 type voiceControl struct {
-	Type     string `json:"type"`
-	StreamID uint32 `json:"stream_id,omitempty"`
-	DeviceID string `json:"device_id,omitempty"`
+	Type          string `json:"type"`
+	StreamID      uint32 `json:"stream_id,omitempty"`
+	DeviceID      string `json:"device_id,omitempty"`
+	Codec         string `json:"codec,omitempty"`
+	SampleRate    int    `json:"sample_rate,omitempty"`
+	Channels      int    `json:"channels,omitempty"`
+	BitsPerSample int    `json:"bits_per_sample,omitempty"`
 }
 
 // VoiceHub tracks one current connection per configured device. The exported
@@ -62,6 +68,7 @@ type voiceSession struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	streamID  uint32
+	codec     string
 }
 
 func NewVoiceHub(cfg VoiceConfig) *VoiceHub {
@@ -166,18 +173,52 @@ func (h *VoiceHub) StartAudio(deviceID string, streamID uint32) error {
 	if err != nil {
 		return err
 	}
-	return session.startAudio(streamID)
+	return session.startAudio(streamID, codecOpus)
 }
 
 func (h *VoiceHub) SendOpus(deviceID string, streamID uint32, frame []byte) error {
-	if len(frame) == 0 || len(frame) > maxOpusFrameSize {
-		return fmt.Errorf("opus frame length must be between 1 and %d bytes", maxOpusFrameSize)
+	if len(frame) == 0 || len(frame) > maxAudioFrameSize {
+		return fmt.Errorf("opus frame length must be between 1 and %d bytes", maxAudioFrameSize)
 	}
 	session, err := h.session(deviceID)
 	if err != nil {
 		return err
 	}
-	return session.sendOpus(streamID, frame)
+	return session.sendAudio(streamID, codecOpus, frame)
+}
+
+// StartPCM selects signed 16-bit little-endian PCM at 16 kHz, mono.
+func (h *VoiceHub) StartPCM(deviceID string, streamID uint32) error {
+	if streamID == 0 {
+		return errors.New("stream id must be non-zero")
+	}
+	session, err := h.session(deviceID)
+	if err != nil {
+		return err
+	}
+	return session.startAudio(streamID, codecPCMS16LE)
+}
+
+// SendPCM frames signed 16-bit little-endian PCM for the current stream.
+func (h *VoiceHub) SendPCM(deviceID string, streamID uint32, pcm []byte) error {
+	if len(pcm) == 0 || len(pcm)%2 != 0 {
+		return errors.New("PCM data must contain complete 16-bit samples")
+	}
+	session, err := h.session(deviceID)
+	if err != nil {
+		return err
+	}
+	for len(pcm) > 0 {
+		frameLen := len(pcm)
+		if frameLen > maxAudioFrameSize {
+			frameLen = maxAudioFrameSize
+		}
+		if err := session.sendAudio(streamID, codecPCMS16LE, pcm[:frameLen]); err != nil {
+			return err
+		}
+		pcm = pcm[frameLen:]
+	}
+	return nil
 }
 
 func (h *VoiceHub) EndAudio(deviceID string, streamID uint32) error {
@@ -236,20 +277,27 @@ func (h *VoiceHub) closeWithPolicy(conn *websocket.Conn, reason string) {
 		websocket.FormatCloseMessage(websocket.ClosePolicyViolation, reason), time.Now().Add(time.Second))
 }
 
-func (s *voiceSession) startAudio(streamID uint32) error {
+func (s *voiceSession) startAudio(streamID uint32, codec string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := s.writeJSONLocked(voiceControl{Type: "audio_start", StreamID: streamID}); err != nil {
+	control := voiceControl{Type: "audio_start", StreamID: streamID, Codec: codec}
+	if codec == codecPCMS16LE {
+		control.SampleRate = 16000
+		control.Channels = 1
+		control.BitsPerSample = 16
+	}
+	if err := s.writeJSONLocked(control); err != nil {
 		return err
 	}
 	s.streamID = streamID
+	s.codec = codec
 	return nil
 }
 
-func (s *voiceSession) sendOpus(streamID uint32, frame []byte) error {
+func (s *voiceSession) sendAudio(streamID uint32, codec string, frame []byte) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if s.streamID != streamID {
+	if s.streamID != streamID || s.codec != codec {
 		return errors.New("audio stream is not active")
 	}
 	return s.conn.WriteMessage(websocket.BinaryMessage, frame)
@@ -265,6 +313,7 @@ func (s *voiceSession) endAudio(streamID uint32) error {
 		return err
 	}
 	s.streamID = 0
+	s.codec = ""
 	return nil
 }
 
@@ -278,6 +327,7 @@ func (s *voiceSession) cancelAudio(streamID uint32) error {
 		return err
 	}
 	s.streamID = 0
+	s.codec = ""
 	return nil
 }
 
