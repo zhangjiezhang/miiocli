@@ -28,12 +28,12 @@ func TestConsolePages(t *testing.T) {
 		{
 			name: "websocket", path: "/websocket", handler: websocketPage,
 			contentType: "text/html; charset=utf-8",
-			contains:    []string{"WebSocket 消息测试", `id="connect-button"`, `new WebSocket(url)`},
+			contains:    []string{"WebSocket 消息发送", `id="device-select"`, `/v1/devices/${encodeURIComponent(deviceID)}/speak`},
 		},
 		{
 			name: "styles", path: "/app.css", handler: appStyles,
 			contentType: "text/css; charset=utf-8",
-			contains:    []string{".site-header", ".ws-workspace"},
+			contains:    []string{".site-header", ".voice-layout"},
 		},
 	}
 

@@ -43,6 +43,11 @@ type speakResponse struct {
 	Status   string `json:"status"`
 }
 
+type voiceDeviceStatus struct {
+	ID     string `json:"id"`
+	Online bool   `json:"online"`
+}
+
 // AliyunTTSService exposes a protected HTTP endpoint and streams native NLS
 // PCM to an ESP32 session managed by VoiceHub.
 type AliyunTTSService struct {
@@ -80,6 +85,30 @@ func NewAliyunTTSService(cfg AliyunTTSConfig, apiToken string, hub *VoiceHub) (*
 		cfg.Voice = "xiaoyun"
 	}
 	return &AliyunTTSService{cfg: cfg, apiToken: apiToken, hub: hub}, nil
+}
+
+func (s *AliyunTTSService) HandleDevices(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/v1/devices" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authorize(r) {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	deviceIDs := s.hub.OnlineDeviceIDs()
+	devices := make([]voiceDeviceStatus, 0, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		devices = append(devices, voiceDeviceStatus{ID: deviceID, Online: true})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
 }
 
 func (s *AliyunTTSService) ServeHTTP(w http.ResponseWriter, r *http.Request) {

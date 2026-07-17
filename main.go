@@ -170,6 +170,7 @@ func main() {
 		http.Handle("/v1/ota/releases/", http.HandlerFunc(otaService.HandleRelease))
 	}
 	if ttsService != nil {
+		http.Handle("/v1/devices", http.HandlerFunc(ttsService.HandleDevices))
 		http.Handle("/v1/devices/", ttsService)
 	}
 	err = http.ListenAndServe(":8080", nil)

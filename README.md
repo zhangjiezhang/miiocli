@@ -51,7 +51,7 @@ Open `http://<server>:8080/` for the service console. The shared navigation prov
 
 - `/` - feature overview, device metrics, endpoint reference, and usage examples.
 - `/ota` - ESP32 firmware release management.
-- `/websocket` - authenticated device WebSocket connection and text/JSON message testing.
+- `/websocket` - online device selection and voice message delivery through the Speak API.
 
 **Voice WebSocket**
 --
@@ -71,6 +71,8 @@ curl -X POST http://<server>:8080/v1/devices/szp-001/speak \
 ```
 
 The response returns `202 Accepted` and a `stream_id`. Configure either an AccessKey pair for automatic NLS token renewal or `voice.tts.token` for a short-lived token.
+
+Use `GET /v1/devices` with the same Bearer API token to list devices that currently have an active WebSocket session.
 
 **Official references**
 ---

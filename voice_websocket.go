@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -99,6 +100,17 @@ func (h *VoiceHub) Path() string {
 func (h *VoiceHub) IsOnline(deviceID string) bool {
 	_, err := h.session(deviceID)
 	return err == nil
+}
+
+func (h *VoiceHub) OnlineDeviceIDs() []string {
+	h.mu.RLock()
+	deviceIDs := make([]string, 0, len(h.sessions))
+	for deviceID := range h.sessions {
+		deviceIDs = append(deviceIDs, deviceID)
+	}
+	h.mu.RUnlock()
+	sort.Strings(deviceIDs)
+	return deviceIDs
 }
 
 func (h *VoiceHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {

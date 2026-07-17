@@ -45,8 +45,8 @@
         </article>
         <article class="feature-card">
           <span class="index">03 / DEBUG</span>
-          <h3>WebSocket 测试</h3>
-          <p>模拟设备建立认证连接，发送文本或 JSON 消息并检查实时收发日志。</p>
+          <h3>WebSocket 消息</h3>
+          <p>查看当前在线设备，通过 Speak API 发送文本，并跟踪异步语音流请求。</p>
           <a href="/websocket">打开消息测试</a>
         </article>
       </div>
@@ -92,6 +92,7 @@
             <p>设备连接后必须首先发送 hello 消息。每个设备 ID 同一时间只保留一个在线连接。</p>
             <div class="endpoint-list">
               <div class="endpoint-row"><span class="method">WS</span><code>/v1/device/ws</code></div>
+              <div class="endpoint-row"><span class="method">GET</span><code>/v1/devices</code></div>
               <div class="endpoint-row"><span class="method">POST</span><code>/v1/devices/{device_id}/speak</code></div>
             </div>
             <pre class="code-block">{
