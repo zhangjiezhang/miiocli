@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WebSocket 测试 · miiocli</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="topbar">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span><span>miiocli</span></a>
+      <nav class="nav" aria-label="主菜单">
+        <a href="/">首页</a>
+        <a href="/ota">OTA</a>
+        <a class="active" href="/websocket">WebSocket</a>
+      </nav>
+      <div class="header-side status-line"><span class="status-dot" id="status-dot"></span><span id="status-text">未连接</span></div>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="page-head">
+      <div>
+        <p class="eyebrow">Protocol Debugger</p>
+        <h1>WebSocket 消息测试</h1>
+        <p class="lead">以设备身份连接 Voice WebSocket，发送文本或 JSON 控制消息，并实时检查服务端响应。</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="section-heading">
+        <div><h2>连接</h2><p>连接成功后将自动发送 hello 鉴权消息</p></div>
+      </div>
+      <div class="ws-connect">
+        <label class="field url">WebSocket 地址<input id="ws-url" type="url" spellcheck="false"></label>
+        <label class="field">设备 ID<input id="device-id" autocomplete="username" placeholder="szp-001"></label>
+        <label class="field">设备 Token<input id="device-token" type="password" autocomplete="current-password" placeholder="device-secret"></label>
+        <button class="button primary" id="connect-button" type="button">连接</button>
+      </div>
+      <p class="muted" style="margin:10px 0 0">使用已在线的设备 ID 进行测试时，服务端会用当前测试连接替换原连接。</p>
+    </section>
+
+    <section class="section">
+      <div class="ws-workspace">
+        <div class="composer">
+          <div class="section-heading"><div><h2>发送消息</h2><p>支持文本与 JSON 文本帧</p></div></div>
+          <div class="segmented" role="group" aria-label="消息格式">
+            <button class="active" type="button" data-mode="json">JSON</button>
+            <button type="button" data-mode="text">文本</button>
+          </div>
+          <textarea id="message" aria-label="消息内容" spellcheck="false">{
+  "type": "ping"
+}</textarea>
+          <div class="composer-actions">
+            <button class="button" id="ping-button" type="button">载入 Ping</button>
+            <button class="button primary" id="send-button" type="button" disabled>发送消息</button>
+          </div>
+        </div>
+
+        <div class="log-panel">
+          <div class="section-heading">
+            <div><h2>收发日志</h2><p id="message-count">0 条消息</p></div>
+            <button class="button icon-button" id="clear-button" type="button" title="清空日志" aria-label="清空日志">×</button>
+          </div>
+          <div class="message-log" id="message-log" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script>
+    const elements = {
+      url: document.getElementById("ws-url"),
+      deviceID: document.getElementById("device-id"),
+      token: document.getElementById("device-token"),
+      connect: document.getElementById("connect-button"),
+      send: document.getElementById("send-button"),
+      ping: document.getElementById("ping-button"),
+      message: document.getElementById("message"),
+      log: document.getElementById("message-log"),
+      count: document.getElementById("message-count"),
+      clear: document.getElementById("clear-button"),
+      statusDot: document.getElementById("status-dot"),
+      statusText: document.getElementById("status-text")
+    };
+    const defaultProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+    elements.url.value = sessionStorage.getItem("ws_test_url") || `${defaultProtocol}//${location.host}/v1/device/ws`;
+    elements.deviceID.value = sessionStorage.getItem("ws_test_device_id") || "";
+
+    let socket = null;
+    let mode = "json";
+    let messageCount = 0;
+
+    function showToast(message, error = false) {
+      const toast = document.getElementById("toast");
+      toast.textContent = message;
+      toast.className = `toast${error ? " error" : ""}`;
+      toast.style.display = "block";
+      setTimeout(() => { toast.style.display = "none"; }, 2800);
+    }
+
+    function setConnectionState(state, label) {
+      elements.statusDot.className = `status-dot${state === "open" ? " ok" : state === "error" ? " error" : ""}`;
+      elements.statusText.textContent = label;
+      elements.send.disabled = state !== "open";
+      elements.connect.textContent = state === "open" || state === "connecting" ? "断开" : "连接";
+      elements.connect.classList.toggle("primary", state !== "open" && state !== "connecting");
+    }
+
+    function appendLog(direction, payload, kind = "text") {
+      messageCount += 1;
+      const row = document.createElement("div");
+      row.className = "log-entry";
+      const time = document.createElement("span");
+      time.className = "log-time";
+      time.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      const label = document.createElement("span");
+      label.className = `log-direction ${direction}`;
+      label.textContent = direction === "out" ? `发送 · ${kind}` : direction === "in" ? `接收 · ${kind}` : "系统";
+      const content = document.createElement("span");
+      content.className = "log-payload";
+      content.textContent = payload;
+      row.append(time, label, content);
+      elements.log.appendChild(row);
+      elements.log.scrollTop = elements.log.scrollHeight;
+      elements.count.textContent = `${messageCount} 条消息`;
+    }
+
+    function connect() {
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        socket.close(1000, "closed by tester");
+        return;
+      }
+      const url = elements.url.value.trim();
+      const deviceID = elements.deviceID.value.trim();
+      const token = elements.token.value;
+      if (!url || !deviceID || !token) {
+        showToast("请填写地址、设备 ID 和设备 Token", true);
+        return;
+      }
+      if (!/^wss?:\/\//i.test(url)) {
+        showToast("WebSocket 地址必须以 ws:// 或 wss:// 开头", true);
+        return;
+      }
+
+      sessionStorage.setItem("ws_test_url", url);
+      sessionStorage.setItem("ws_test_device_id", deviceID);
+      setConnectionState("connecting", "连接中");
+      appendLog("system", `正在连接 ${url}`);
+      try {
+        socket = new WebSocket(url);
+      } catch (error) {
+        setConnectionState("error", "连接失败");
+        appendLog("system", error.message);
+        return;
+      }
+      socket.binaryType = "arraybuffer";
+      socket.addEventListener("open", () => {
+        const hello = { type: "hello", device_id: deviceID, token };
+        socket.send(JSON.stringify(hello));
+        appendLog("out", JSON.stringify({ ...hello, token: "••••••••" }, null, 2), "hello");
+        setConnectionState("open", "已连接");
+      });
+      socket.addEventListener("message", async (event) => {
+        if (typeof event.data === "string") {
+          let formatted = event.data;
+          try { formatted = JSON.stringify(JSON.parse(event.data), null, 2); } catch (_) {}
+          appendLog("in", formatted, "text");
+        } else {
+          const buffer = event.data instanceof Blob ? await event.data.arrayBuffer() : event.data;
+          appendLog("in", `${buffer.byteLength} bytes`, "binary");
+        }
+      });
+      socket.addEventListener("error", () => {
+        setConnectionState("error", "连接异常");
+        appendLog("system", "WebSocket 连接发生错误，请检查地址与设备凭据");
+      });
+      socket.addEventListener("close", (event) => {
+        const detail = event.reason ? `${event.code} · ${event.reason}` : String(event.code);
+        appendLog("system", `连接已关闭 (${detail})`);
+        socket = null;
+        setConnectionState("closed", "未连接");
+      });
+    }
+
+    function sendMessage() {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        showToast("WebSocket 尚未连接", true);
+        return;
+      }
+      let payload = elements.message.value;
+      if (!payload.trim()) {
+        showToast("消息内容不能为空", true);
+        return;
+      }
+      if (mode === "json") {
+        try {
+          payload = JSON.stringify(JSON.parse(payload));
+        } catch (error) {
+          showToast(`JSON 格式错误：${error.message}`, true);
+          return;
+        }
+      }
+      socket.send(payload);
+      appendLog("out", mode === "json" ? JSON.stringify(JSON.parse(payload), null, 2) : payload, mode);
+    }
+
+    elements.connect.addEventListener("click", connect);
+    elements.send.addEventListener("click", sendMessage);
+    elements.ping.addEventListener("click", () => {
+      mode = "json";
+      document.querySelectorAll("[data-mode]").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
+      elements.message.value = '{\n  "type": "ping"\n}';
+      elements.message.focus();
+    });
+    elements.clear.addEventListener("click", () => {
+      elements.log.replaceChildren();
+      messageCount = 0;
+      elements.count.textContent = "0 条消息";
+    });
+    document.querySelectorAll("[data-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        mode = button.dataset.mode;
+        document.querySelectorAll("[data-mode]").forEach((item) => item.classList.toggle("active", item === button));
+      });
+    });
+    window.addEventListener("beforeunload", () => socket?.close());
+  </script>
+</body>
+</html>

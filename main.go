@@ -108,6 +108,12 @@ var dashboardHTML string
 //go:embed ota.html
 var otaHTML string
 
+//go:embed websocket.html
+var websocketHTML string
+
+//go:embed app.css
+var appCSS string
+
 func main() {
 	flag.StringVar(&filePath, "filePath", "./app.yaml", "config file path")
 	flag.Float64Var(&daily, "daily", 10, "daily seconds")
@@ -151,8 +157,10 @@ func main() {
 
 	http.Handle("/metrics", http.HandlerFunc(metrics))
 	http.Handle("/static", http.HandlerFunc(static))
+	http.Handle("/app.css", http.HandlerFunc(appStyles))
 	http.Handle("/", http.HandlerFunc(dashboard))
 	http.Handle("/dashboard", http.HandlerFunc(dashboard))
+	http.Handle("/websocket", http.HandlerFunc(websocketPage))
 	http.Handle(voiceHub.Path(), voiceHub)
 	if otaService != nil {
 		http.Handle("/ota", http.HandlerFunc(otaPage))
@@ -168,6 +176,24 @@ func main() {
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)
 	}
+}
+
+func appStyles(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/app.css" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	_, _ = w.Write([]byte(appCSS))
+}
+
+func websocketPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/websocket" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(websocketHTML))
 }
 
 func otaPage(w http.ResponseWriter, r *http.Request) {

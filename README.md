@@ -45,6 +45,14 @@ Config example:
         hostName: esxi-01
         asyn: true
 
+**Web console**
+--
+Open `http://<server>:8080/` for the service console. The shared navigation provides these pages:
+
+- `/` - feature overview, device metrics, endpoint reference, and usage examples.
+- `/ota` - ESP32 firmware release management.
+- `/websocket` - authenticated device WebSocket connection and text/JSON message testing.
+
 **Voice WebSocket**
 --
 The ESP32 connects to `ws://<server>:8080/v1/device/ws` and first sends a `hello` JSON message with its `device_id` and token. The server keeps one live connection per configured device.
