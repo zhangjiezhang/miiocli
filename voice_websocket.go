@@ -20,6 +20,7 @@ const (
 	voiceReadWait     = 75 * time.Second
 	voicePingPeriod   = 20 * time.Second
 	maxAudioFrameSize = 1024
+	maxCaptureBytes   = 16000 * 2 * 30
 	codecOpus         = "opus"
 	codecPCMS16LE     = "pcm_s16le"
 )
@@ -28,8 +29,10 @@ const (
 type VoiceConfig struct {
 	Path     string                       `yaml:"path"`
 	APIToken string                       `yaml:"apiToken"`
+	LogInput bool                         `yaml:"logInput"`
 	Devices  map[string]VoiceDeviceConfig `yaml:"devices"`
 	TTS      AliyunTTSConfig              `yaml:"tts"`
+	Codex    CodexConfig                  `yaml:"codex"`
 }
 
 type VoiceDeviceConfig struct {
@@ -43,23 +46,46 @@ type voiceHello struct {
 }
 
 type voiceControl struct {
-	Type          string `json:"type"`
-	StreamID      uint32 `json:"stream_id,omitempty"`
-	DeviceID      string `json:"device_id,omitempty"`
-	Codec         string `json:"codec,omitempty"`
-	SampleRate    int    `json:"sample_rate,omitempty"`
-	Channels      int    `json:"channels,omitempty"`
-	BitsPerSample int    `json:"bits_per_sample,omitempty"`
+	Type          string               `json:"type"`
+	StreamID      uint32               `json:"stream_id,omitempty"`
+	UtteranceID   string               `json:"utterance_id,omitempty"`
+	TaskID        string               `json:"task_id,omitempty"`
+	DeviceID      string               `json:"device_id,omitempty"`
+	Codec         string               `json:"codec,omitempty"`
+	SampleRate    int                  `json:"sample_rate,omitempty"`
+	Channels      int                  `json:"channels,omitempty"`
+	BitsPerSample int                  `json:"bits_per_sample,omitempty"`
+	State         string               `json:"state,omitempty"`
+	Message       string               `json:"message,omitempty"`
+	Text          string               `json:"text,omitempty"`
+	Bytes         int                  `json:"bytes,omitempty"`
+	SessionID     string               `json:"session_id,omitempty"`
+	Surface       string               `json:"surface,omitempty"`
+	Sessions      []voiceSessionOption `json:"sessions,omitempty"`
 }
+
+type voiceSessionOption struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Surface  string `json:"surface"`
+	State    string `json:"state"`
+	Selected bool   `json:"selected"`
+}
+
+type utteranceHandler func(deviceID, utteranceID string, pcm []byte)
+type codexSessionHandler func(deviceID, action, sessionID string)
 
 // VoiceHub tracks one current connection per configured device. The exported
 // methods are the integration point for a future TTS worker.
 type VoiceHub struct {
-	path     string
-	devices  map[string]VoiceDeviceConfig
-	mu       sync.RWMutex
-	sessions map[string]*voiceSession
-	upgrader websocket.Upgrader
+	path           string
+	logInput       bool
+	devices        map[string]VoiceDeviceConfig
+	mu             sync.RWMutex
+	sessions       map[string]*voiceSession
+	upgrader       websocket.Upgrader
+	handler        utteranceHandler
+	sessionHandler codexSessionHandler
 }
 
 type voiceSession struct {
@@ -70,6 +96,9 @@ type voiceSession struct {
 	closeOnce sync.Once
 	streamID  uint32
 	codec     string
+	captureMu sync.Mutex
+	captureID string
+	capture   []byte
 }
 
 func NewVoiceHub(cfg VoiceConfig) *VoiceHub {
@@ -83,6 +112,7 @@ func NewVoiceHub(cfg VoiceConfig) *VoiceHub {
 
 	return &VoiceHub{
 		path:     path,
+		logInput: cfg.LogInput,
 		devices:  cfg.Devices,
 		sessions: make(map[string]*voiceSession),
 		upgrader: websocket.Upgrader{
@@ -100,6 +130,47 @@ func (h *VoiceHub) Path() string {
 func (h *VoiceHub) IsOnline(deviceID string) bool {
 	_, err := h.session(deviceID)
 	return err == nil
+}
+
+func (h *VoiceHub) SetUtteranceHandler(handler utteranceHandler) {
+	h.mu.Lock()
+	h.handler = handler
+	h.mu.Unlock()
+}
+
+func (h *VoiceHub) SetCodexSessionHandler(handler codexSessionHandler) {
+	h.mu.Lock()
+	h.sessionHandler = handler
+	h.mu.Unlock()
+}
+
+func (h *VoiceHub) SendCommandState(deviceID, taskID, state, message, text string) error {
+	session, err := h.session(deviceID)
+	if err != nil {
+		return err
+	}
+	return session.writeControl(voiceControl{
+		Type: "command_state", TaskID: taskID, State: state, Message: message, Text: text,
+	})
+}
+
+func (h *VoiceHub) SendCodexSessions(deviceID string, sessions []voiceSessionOption) error {
+	session, err := h.session(deviceID)
+	if err != nil {
+		return err
+	}
+	return session.writeControl(voiceControl{Type: "session_list", Sessions: sessions})
+}
+
+func (h *VoiceHub) SendCodexSessionSelected(deviceID string, selected voiceSessionOption) error {
+	session, err := h.session(deviceID)
+	if err != nil {
+		return err
+	}
+	return session.writeControl(voiceControl{
+		Type: "session_selected", SessionID: selected.ID, Message: selected.Title,
+		Surface: selected.Surface, State: selected.State,
+	})
 }
 
 func (h *VoiceHub) OnlineDeviceIDs() []string {
@@ -158,6 +229,7 @@ func (h *VoiceHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("voice device connected: %s", hello.DeviceID)
 	go session.pingLoop()
+	h.dispatchSessionControl(hello.DeviceID, "session_list", "")
 
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(voiceReadWait))
@@ -168,13 +240,111 @@ func (h *VoiceHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		if messageType == websocket.TextMessage {
-			var control voiceControl
-			if json.Unmarshal(payload, &control) == nil && control.Type == "ping" {
-				_ = session.writeControl(voiceControl{Type: "pong"})
+		switch messageType {
+		case websocket.TextMessage:
+			h.handleDeviceControl(session, payload)
+		case websocket.BinaryMessage:
+			if err := session.appendCapture(payload); err != nil {
+				_ = session.writeControl(voiceControl{Type: "command_state", State: "error", Message: err.Error()})
 			}
 		}
 	}
+}
+
+func (h *VoiceHub) handleDeviceControl(session *voiceSession, payload []byte) {
+	var control voiceControl
+	if json.Unmarshal(payload, &control) != nil {
+		return
+	}
+	switch control.Type {
+	case "ping":
+		_ = session.writeControl(voiceControl{Type: "pong"})
+	case "listen_start":
+		if control.Codec != codecPCMS16LE || control.SampleRate != 16000 || control.Channels != 1 ||
+			control.BitsPerSample != 16 || control.UtteranceID == "" {
+			_ = session.writeControl(voiceControl{Type: "command_state", State: "error", Message: "invalid capture format"})
+			return
+		}
+		session.startCapture(control.UtteranceID)
+		h.logVoiceInput("started device=%s utterance=%s codec=%s sample_rate=%d channels=%d bits=%d",
+			session.deviceID, control.UtteranceID, control.Codec, control.SampleRate,
+			control.Channels, control.BitsPerSample)
+		_ = session.writeControl(voiceControl{Type: "listen_ready", UtteranceID: control.UtteranceID})
+	case "listen_end":
+		pcm, err := session.finishCapture(control.UtteranceID)
+		if err != nil {
+			_ = session.writeControl(voiceControl{Type: "command_state", State: "error", Message: err.Error()})
+			return
+		}
+		durationMS := len(pcm) * 1000 / (16000 * 2)
+		h.logVoiceInput("received device=%s utterance=%s bytes=%d duration_ms=%d",
+			session.deviceID, control.UtteranceID, len(pcm), durationMS)
+		_ = session.writeControl(voiceControl{Type: "listen_received", UtteranceID: control.UtteranceID, Bytes: len(pcm)})
+		h.mu.RLock()
+		handler := h.handler
+		h.mu.RUnlock()
+		if handler == nil {
+			_ = session.writeControl(voiceControl{Type: "command_state", State: "error", Message: "voice command service is unavailable"})
+			return
+		}
+		go handler(session.deviceID, control.UtteranceID, pcm)
+	case "session_list", "session_next", "session_select":
+		h.dispatchSessionControl(session.deviceID, control.Type, control.SessionID)
+	}
+}
+
+func (h *VoiceHub) logVoiceInput(format string, args ...interface{}) {
+	if h.logInput {
+		log.Printf("ESP32 voice input: "+format, args...)
+	}
+}
+
+func (h *VoiceHub) dispatchSessionControl(deviceID, action, sessionID string) {
+	h.mu.RLock()
+	handler := h.sessionHandler
+	h.mu.RUnlock()
+	if handler != nil {
+		go handler(deviceID, action, sessionID)
+	}
+}
+
+func (s *voiceSession) startCapture(utteranceID string) {
+	s.captureMu.Lock()
+	s.captureID = utteranceID
+	s.capture = make([]byte, 0, 32*1024)
+	s.captureMu.Unlock()
+}
+
+func (s *voiceSession) appendCapture(frame []byte) error {
+	s.captureMu.Lock()
+	defer s.captureMu.Unlock()
+	if s.captureID == "" {
+		return errors.New("audio frame received without listen_start")
+	}
+	if len(frame) == 0 || len(frame) > maxAudioFrameSize || len(s.capture)+len(frame) > maxCaptureBytes {
+		s.captureID = ""
+		s.capture = nil
+		return errors.New("voice capture exceeded protocol limits")
+	}
+	s.capture = append(s.capture, frame...)
+	return nil
+}
+
+func (s *voiceSession) finishCapture(utteranceID string) ([]byte, error) {
+	s.captureMu.Lock()
+	defer s.captureMu.Unlock()
+	if utteranceID == "" || utteranceID != s.captureID {
+		return nil, errors.New("listen_end does not match active capture")
+	}
+	if len(s.capture) < 1600 {
+		s.captureID = ""
+		s.capture = nil
+		return nil, errors.New("voice capture is too short")
+	}
+	pcm := append([]byte(nil), s.capture...)
+	s.captureID = ""
+	s.capture = nil
+	return pcm, nil
 }
 
 func (h *VoiceHub) StartAudio(deviceID string, streamID uint32) error {

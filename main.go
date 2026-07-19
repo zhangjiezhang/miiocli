@@ -48,13 +48,14 @@ var (
 		},
 		[]string{"host_name", "alias"},
 	)
-	filePath   = ""
-	daily      float64
-	config     Config
-	voiceHub   *VoiceHub
-	otaService *OTAService
-	resultData ResultData
-	resultMu   sync.RWMutex
+	filePath     = ""
+	daily        float64
+	config       Config
+	voiceHub     *VoiceHub
+	otaService   *OTAService
+	codexService *CodexSessionService
+	resultData   ResultData
+	resultMu     sync.RWMutex
 )
 
 type Config struct {
@@ -111,6 +112,9 @@ var otaHTML string
 //go:embed websocket.html
 var websocketHTML string
 
+//go:embed codex.html
+var codexHTML string
+
 //go:embed app.css
 var appCSS string
 
@@ -148,6 +152,38 @@ func main() {
 	if err != nil {
 		log.Printf("voice TTS endpoint disabled: %v", err)
 	}
+	codexService, err = NewCodexSessionService(config.Voice.Codex, config.Voice.APIToken,
+		config.Voice.Devices)
+	if err != nil {
+		log.Printf("Codex session integration disabled: %v", err)
+	} else {
+		voiceHub.SetCodexSessionHandler(func(deviceID, action, sessionID string) {
+			switch action {
+			case "session_list":
+				_ = voiceHub.SendCodexSessions(deviceID, codexService.DeviceSessionOptions(deviceID))
+			case "session_next":
+				selected, selectErr := codexService.SelectNextDeviceSession(deviceID)
+				if selectErr != nil {
+					_ = voiceHub.SendCommandState(deviceID, "", "error", selectErr.Error(), "")
+					return
+				}
+				_ = voiceHub.SendCodexSessionSelected(deviceID, selected)
+			case "session_select":
+				selected, selectErr := codexService.SelectDeviceSession(deviceID, sessionID)
+				if selectErr != nil {
+					_ = voiceHub.SendCommandState(deviceID, "", "error", selectErr.Error(), "")
+					return
+				}
+				_ = voiceHub.SendCodexSessionSelected(deviceID, selected)
+			}
+		})
+	}
+	commandService, err := NewVoiceCommandService(config.Voice, voiceHub, ttsService, codexService)
+	if err != nil {
+		log.Printf("voice command service disabled: %v", err)
+	} else {
+		voiceHub.SetUtteranceHandler(commandService.HandleUtterance)
+	}
 	go func() {
 		for {
 			callTraffic(config.TrafficAddress)
@@ -162,6 +198,13 @@ func main() {
 	http.Handle("/dashboard", http.HandlerFunc(dashboard))
 	http.Handle("/websocket", http.HandlerFunc(websocketPage))
 	http.Handle(voiceHub.Path(), voiceHub)
+	if codexService != nil {
+		http.Handle("/codex", http.HandlerFunc(codexPage))
+		http.Handle(codexService.RegisterPath(), http.HandlerFunc(codexService.HandleRegister))
+		http.Handle(codexService.EventPath(), http.HandlerFunc(codexService.HandleEvent))
+		http.Handle("/v1/codex/sessions", http.HandlerFunc(codexService.HandleSessions))
+		http.Handle("/v1/codex/sessions/", codexService)
+	}
 	if otaService != nil {
 		http.Handle("/ota", http.HandlerFunc(otaPage))
 		http.Handle("/v1/ota/check", http.HandlerFunc(otaService.HandleCheck))
@@ -195,6 +238,15 @@ func websocketPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(websocketHTML))
+}
+
+func codexPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/codex" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(codexHTML))
 }
 
 func otaPage(w http.ResponseWriter, r *http.Request) {

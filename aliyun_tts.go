@@ -145,19 +145,34 @@ func (s *AliyunTTSService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	streamID := atomic.AddUint32(&s.nextID, 1)
-	if streamID == 0 {
-		streamID = atomic.AddUint32(&s.nextID, 1)
+	streamID, err := s.Speak(deviceID, request.Text, request.Voice)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
 	}
-	voice := request.Voice
-	if voice == "" {
-		voice = s.cfg.Voice
-	}
-	go s.synthesize(deviceID, streamID, request.Text, voice)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(speakResponse{StreamID: streamID, Status: "accepted"})
+}
+
+func (s *AliyunTTSService) Speak(deviceID, text, voice string) (uint32, error) {
+	text = strings.TrimSpace(text)
+	if text == "" || utf8.RuneCountInString(text) > maxSpeakRunes {
+		return 0, errors.New("text must contain 1 to 1000 characters")
+	}
+	if !s.hub.IsOnline(deviceID) {
+		return 0, errors.New("device is offline")
+	}
+	streamID := atomic.AddUint32(&s.nextID, 1)
+	if streamID == 0 {
+		streamID = atomic.AddUint32(&s.nextID, 1)
+	}
+	if voice == "" {
+		voice = s.cfg.Voice
+	}
+	go s.synthesize(deviceID, streamID, text, voice)
+	return streamID, nil
 }
 
 func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, voice string) {
@@ -225,11 +240,15 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 }
 
 func (s *AliyunTTSService) connectionConfig() (*nls.ConnectionConfig, error) {
-	if s.cfg.Token != "" {
-		return nls.NewConnectionConfigWithToken(s.cfg.Endpoint, s.cfg.AppKey, s.cfg.Token), nil
+	return aliyunConnectionConfig(s.cfg)
+}
+
+func aliyunConnectionConfig(cfg AliyunTTSConfig) (*nls.ConnectionConfig, error) {
+	if cfg.Token != "" {
+		return nls.NewConnectionConfigWithToken(cfg.Endpoint, cfg.AppKey, cfg.Token), nil
 	}
-	return nls.NewConnectionConfigWithAKInfoDefault(s.cfg.Endpoint, s.cfg.AppKey,
-		s.cfg.AccessKeyID, s.cfg.AccessKeySecret)
+	return nls.NewConnectionConfigWithAKInfoDefault(cfg.Endpoint, cfg.AppKey,
+		cfg.AccessKeyID, cfg.AccessKeySecret)
 }
 
 func (s *AliyunTTSService) authorize(r *http.Request) bool {

@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Codex Session · miiocli</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="topbar">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span><span>miiocli</span></a>
+      <nav class="nav" aria-label="主菜单">
+        <a href="/">首页</a>
+        <a href="/ota">OTA</a>
+        <a href="/websocket">WebSocket</a>
+        <a class="active" href="/codex">Codex</a>
+      </nav>
+      <div class="header-side status-line"><span class="status-dot" id="status-dot"></span><span id="status-text">未连接</span></div>
+    </div>
+  </header>
+
+  <main class="page codex-page">
+    <div class="page-head compact-head">
+      <div>
+        <p class="eyebrow">Session Router</p>
+        <h1>Codex Session</h1>
+        <p class="lead">管理已注册的 Codex 会话、ESP32 绑定与多入口消息。</p>
+      </div>
+      <div class="codex-auth">
+        <label class="field compact-field">API Token<input id="api-token" type="password" autocomplete="current-password" placeholder="Voice API Token"></label>
+        <button class="button primary" id="connect" type="button">连接</button>
+      </div>
+    </div>
+
+    <section class="codex-workspace" aria-label="Codex Session 工作区">
+      <aside class="session-sidebar">
+        <div class="session-sidebar-head">
+          <div><h2>Sessions</h2><p id="session-count">0 个在线</p></div>
+          <button class="button icon-button" id="refresh" type="button" title="刷新" aria-label="刷新">↻</button>
+        </div>
+        <div class="session-list" id="session-list"><div class="empty">输入 API Token 后加载</div></div>
+      </aside>
+
+      <div class="session-detail">
+        <div class="session-detail-head" id="session-head">
+          <div>
+            <div class="session-title-row"><h2 id="session-title">选择一个 Session</h2><span class="session-state" id="session-state">--</span></div>
+            <p id="session-meta">CLI、SDK/IDEA 和 App 会话会在注册后显示于此</p>
+          </div>
+          <div class="binding-control">
+            <label class="field compact-field">ESP32 绑定
+              <select id="device-select" disabled><option value="">选择设备</option></select>
+            </label>
+            <button class="button" id="bind-device" type="button" disabled>绑定</button>
+          </div>
+        </div>
+
+        <div class="session-capabilities" id="session-capabilities"></div>
+        <div class="conversation" id="conversation"><div class="empty">选择 Session 后查看消息与执行状态</div></div>
+
+        <form class="codex-composer" id="message-form">
+          <label class="field composer-field">发送到当前 Session
+            <textarea id="message" rows="3" maxlength="4000" placeholder="输入消息" disabled required></textarea>
+          </label>
+          <div class="composer-actions">
+            <span class="muted" id="message-count">0 / 4000</span>
+            <button class="button primary" id="send" type="submit" disabled>发送</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script>
+    const elements = {
+      token: document.getElementById("api-token"),
+      connect: document.getElementById("connect"),
+      refresh: document.getElementById("refresh"),
+      statusDot: document.getElementById("status-dot"),
+      statusText: document.getElementById("status-text"),
+      sessionCount: document.getElementById("session-count"),
+      sessionList: document.getElementById("session-list"),
+      title: document.getElementById("session-title"),
+      state: document.getElementById("session-state"),
+      meta: document.getElementById("session-meta"),
+      capabilities: document.getElementById("session-capabilities"),
+      conversation: document.getElementById("conversation"),
+      deviceSelect: document.getElementById("device-select"),
+      bind: document.getElementById("bind-device"),
+      form: document.getElementById("message-form"),
+      message: document.getElementById("message"),
+      messageCount: document.getElementById("message-count"),
+      send: document.getElementById("send")
+    };
+
+    elements.token.value = sessionStorage.getItem("voice_api_token") || "";
+    let sessions = [];
+    let devices = [];
+    let selectedSessionID = sessionStorage.getItem("codex_session_id") || "";
+    let pollTimer = null;
+
+    function headers(json = false) {
+      const value = { Authorization: `Bearer ${elements.token.value.trim()}` };
+      if (json) value["Content-Type"] = "application/json";
+      return value;
+    }
+
+    function showToast(message, error = false) {
+      const toast = document.getElementById("toast");
+      toast.textContent = message;
+      toast.className = `toast${error ? " error" : ""}`;
+      toast.style.display = "block";
+      setTimeout(() => { toast.style.display = "none"; }, 3000);
+    }
+
+    function setStatus(state, text) {
+      elements.statusDot.className = `status-dot${state === "ok" ? " ok" : state === "error" ? " error" : ""}`;
+      elements.statusText.textContent = text;
+    }
+
+    function surfaceName(surface) {
+      return { cli: "CLI", sdk: "SDK / IDEA", app: "APP" }[surface] || surface.toUpperCase();
+    }
+
+    function stateName(session) {
+      if (!session.online) return "离线";
+      return session.state === "running" ? "执行中" : "空闲";
+    }
+
+    function formatTime(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "--" : date.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
+    }
+
+    function renderSessionList() {
+      const online = sessions.filter((session) => session.online).length;
+      elements.sessionCount.textContent = `${online} 个在线 · ${sessions.length} 个已注册`;
+      elements.sessionList.replaceChildren();
+      if (!sessions.length) {
+        elements.sessionList.innerHTML = '<div class="empty">尚无 Connector 注册 Session</div>';
+        selectSession("");
+        return;
+      }
+      if (!sessions.some((session) => session.session_id === selectedSessionID)) {
+        selectedSessionID = sessions.find((session) => session.online)?.session_id || sessions[0].session_id;
+      }
+      for (const session of sessions) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `session-row${session.session_id === selectedSessionID ? " selected" : ""}${session.online ? "" : " offline"}`;
+        button.addEventListener("click", () => selectSession(session.session_id));
+
+        const top = document.createElement("span");
+        top.className = "session-row-top";
+        const title = document.createElement("strong");
+        title.textContent = session.title || session.project || session.session_id.slice(0, 12);
+        const surface = document.createElement("span");
+        surface.className = `surface-badge ${session.surface}`;
+        surface.textContent = surfaceName(session.surface);
+        top.append(title, surface);
+
+        const detail = document.createElement("span");
+        detail.className = "session-row-detail";
+        detail.textContent = [session.project, session.branch].filter(Boolean).join(" · ") || session.thread_id;
+
+        const foot = document.createElement("span");
+        foot.className = "session-row-foot";
+        const status = document.createElement("span");
+        status.className = `mini-status ${session.online ? session.state : "offline"}`;
+        status.textContent = stateName(session);
+        const time = document.createElement("span");
+        time.textContent = formatTime(session.last_seen);
+        foot.append(status, time);
+        button.append(top, detail, foot);
+        elements.sessionList.appendChild(button);
+      }
+      selectSession(selectedSessionID, false);
+    }
+
+    function selectSession(sessionID, rerender = true) {
+      selectedSessionID = sessionID;
+      sessionStorage.setItem("codex_session_id", sessionID);
+      const session = sessions.find((item) => item.session_id === sessionID);
+      if (rerender) renderSessionList();
+      if (!session) {
+        elements.title.textContent = "选择一个 Session";
+        elements.state.textContent = "--";
+        elements.state.className = "session-state";
+        elements.meta.textContent = "CLI、SDK/IDEA 和 App 会话会在注册后显示于此";
+        elements.capabilities.replaceChildren();
+        elements.conversation.innerHTML = '<div class="empty">选择 Session 后查看消息与执行状态</div>';
+        elements.message.disabled = true;
+        elements.send.disabled = true;
+        elements.bind.disabled = true;
+        return;
+      }
+      elements.title.textContent = session.title || session.project || "Codex Session";
+      elements.state.textContent = stateName(session);
+      elements.state.className = `session-state ${session.online ? session.state : "offline"}`;
+      elements.meta.textContent = [surfaceName(session.surface), session.project, session.branch, `Thread ${session.thread_id.slice(0, 12)}`].filter(Boolean).join(" · ");
+      elements.capabilities.replaceChildren();
+      for (const capability of session.capabilities || []) {
+        const tag = document.createElement("span");
+        tag.className = "capability-tag";
+        tag.textContent = capability;
+        elements.capabilities.appendChild(tag);
+      }
+      if (session.bound_devices?.length) {
+        const tag = document.createElement("span");
+        tag.className = "capability-tag bound";
+        tag.textContent = `ESP32: ${session.bound_devices.join(", ")}`;
+        elements.capabilities.appendChild(tag);
+      }
+      elements.message.disabled = !session.online;
+      elements.bind.disabled = !session.online || !elements.deviceSelect.value;
+      updateSendState();
+      loadEvents();
+    }
+
+    function renderEvents(events) {
+      elements.conversation.replaceChildren();
+      if (!events.length) {
+        elements.conversation.innerHTML = '<div class="empty">当前 Session 暂无外部消息</div>';
+        return;
+      }
+      for (const event of events) {
+        const row = document.createElement("div");
+        row.className = `conversation-entry ${event.state}`;
+        const header = document.createElement("div");
+        header.className = "conversation-entry-head";
+        const source = document.createElement("span");
+        source.textContent = event.state === "user" ? "外部输入" : event.state === "done" ? "Codex" : "执行状态";
+        const time = document.createElement("time");
+        time.textContent = formatTime(event.created_at);
+        header.append(source, time);
+        const body = document.createElement("div");
+        body.className = "conversation-entry-body";
+        body.textContent = event.text || event.result || event.error || event.message || event.state;
+        row.append(header, body);
+        elements.conversation.appendChild(row);
+      }
+      elements.conversation.scrollTop = elements.conversation.scrollHeight;
+    }
+
+    async function loadSessions(quiet = false) {
+      if (!elements.token.value.trim()) {
+        if (!quiet) showToast("请输入 Voice API Token", true);
+        return;
+      }
+      if (!quiet) elements.connect.disabled = true;
+      try {
+        const sessionResponse = await fetch("/v1/codex/sessions", { headers: headers(), cache: "no-store" });
+        if (!sessionResponse.ok) throw new Error(sessionResponse.status === 401 ? "API Token 无效" : `Session 加载失败 (${sessionResponse.status})`);
+        const sessionData = await sessionResponse.json();
+        sessions = Array.isArray(sessionData.sessions) ? sessionData.sessions : [];
+        devices = Array.isArray(sessionData.devices) ? sessionData.devices : [];
+        sessionStorage.setItem("voice_api_token", elements.token.value.trim());
+        renderDeviceOptions();
+        renderSessionList();
+        setStatus("ok", `${sessions.filter((session) => session.online).length} 个 Session 在线`);
+        if (!pollTimer) pollTimer = setInterval(() => loadSessions(true), 3000);
+      } catch (error) {
+        setStatus("error", error.message);
+        if (!quiet) showToast(error.message, true);
+      } finally {
+        elements.connect.disabled = false;
+      }
+    }
+
+    function renderDeviceOptions() {
+      const selected = elements.deviceSelect.value;
+      elements.deviceSelect.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = devices.length ? "选择设备" : "暂无已配置设备";
+      elements.deviceSelect.appendChild(placeholder);
+      for (const device of devices) {
+        const option = document.createElement("option");
+        option.value = device.id;
+        option.textContent = device.id;
+        option.selected = device.id === selected;
+        elements.deviceSelect.appendChild(option);
+      }
+      elements.deviceSelect.disabled = devices.length === 0;
+      elements.bind.disabled = !selectedSessionID || !elements.deviceSelect.value;
+    }
+
+    async function loadEvents() {
+      const sessionID = selectedSessionID;
+      if (!sessionID) return;
+      try {
+        const response = await fetch(`/v1/codex/sessions/${encodeURIComponent(sessionID)}/events`, { headers: headers(), cache: "no-store" });
+        if (!response.ok || sessionID !== selectedSessionID) return;
+        const data = await response.json();
+        renderEvents(Array.isArray(data.events) ? data.events : []);
+      } catch (_) {}
+    }
+
+    function updateSendState() {
+      const session = sessions.find((item) => item.session_id === selectedSessionID);
+      const count = Array.from(elements.message.value).length;
+      elements.messageCount.textContent = `${count} / 4000`;
+      elements.send.disabled = !session?.online || !elements.message.value.trim();
+    }
+
+    elements.form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = elements.message.value.trim();
+      if (!selectedSessionID || !text) return;
+      elements.send.disabled = true;
+      try {
+        const response = await fetch(`/v1/codex/sessions/${encodeURIComponent(selectedSessionID)}/messages`, {
+          method: "POST", headers: headers(true), body: JSON.stringify({ text })
+        });
+        if (!response.ok) throw new Error(await response.text() || `发送失败 (${response.status})`);
+        elements.message.value = "";
+        updateSendState();
+        await loadEvents();
+      } catch (error) {
+        showToast(error.message.trim(), true);
+        updateSendState();
+      }
+    });
+
+    elements.bind.addEventListener("click", async () => {
+      const deviceID = elements.deviceSelect.value;
+      if (!selectedSessionID || !deviceID) return;
+      try {
+        const response = await fetch(`/v1/codex/sessions/${encodeURIComponent(selectedSessionID)}/bind`, {
+          method: "POST", headers: headers(true), body: JSON.stringify({ device_id: deviceID })
+        });
+        if (!response.ok) throw new Error(await response.text() || `绑定失败 (${response.status})`);
+        showToast(`${deviceID} 已绑定到当前 Session`);
+        await loadSessions(true);
+      } catch (error) {
+        showToast(error.message.trim(), true);
+      }
+    });
+
+    elements.message.addEventListener("input", updateSendState);
+    elements.deviceSelect.addEventListener("change", () => { elements.bind.disabled = !selectedSessionID || !elements.deviceSelect.value; });
+    elements.connect.addEventListener("click", () => loadSessions(false));
+    elements.refresh.addEventListener("click", () => loadSessions(false));
+    if (elements.token.value) loadSessions(true);
+  </script>
+</body>
+</html>
