@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -54,6 +55,7 @@ var (
 	voiceHub     *VoiceHub
 	otaService   *OTAService
 	codexService *CodexSessionService
+	kiwiService  *KiwiService
 	resultData   ResultData
 	resultMu     sync.RWMutex
 )
@@ -63,6 +65,7 @@ type Config struct {
 	Mis            []Mi        `yaml:"mis"`
 	Voice          VoiceConfig `yaml:"voice"`
 	OTA            OTAConfig   `yaml:"ota"`
+	Kiwi           KiwiConfig  `yaml:"kiwi"`
 }
 type Mi struct {
 	Name     string `yaml:"name"`
@@ -89,6 +92,7 @@ type ResultData struct {
 	Temperatures map[string]float64     `json:"temperatures"`
 	Traffic      map[string]interface{} `json:"traffic"`
 	Devices      []DeviceData           `json:"devices,omitempty"`
+	Kiwi         *KiwiData              `json:"kiwi,omitempty"`
 }
 type DeviceData struct {
 	Name        string   `json:"name"`
@@ -141,6 +145,12 @@ func main() {
 	mis := config.Mis
 	resultData.Powers = make(map[string]float64, len(mis))
 	resultData.Temperatures = make(map[string]float64, len(mis))
+	kiwiService = NewKiwiService(config.Kiwi)
+	if kiwiService.Snapshot().Configured {
+		go kiwiService.Run(context.Background(), config.Kiwi.PollInterval())
+	} else {
+		log.Printf("KiwiVM service disabled: kiwi.veid or kiwi.apiKey is not configured")
+	}
 
 	callEndpoint()
 	voiceHub = NewVoiceHub(config.Voice)
@@ -455,6 +465,10 @@ func snapshotResultData() ResultData {
 		Temperatures: make(map[string]float64, len(resultData.Temperatures)),
 		Traffic:      copyMap(resultData.Traffic),
 		Devices:      make([]DeviceData, 0, len(config.Mis)),
+	}
+	if kiwiService != nil {
+		kiwi := kiwiService.Snapshot()
+		data.Kiwi = &kiwi
 	}
 	for key, value := range resultData.Powers {
 		data.Powers[key] = value

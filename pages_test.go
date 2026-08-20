@@ -18,7 +18,7 @@ func TestConsolePages(t *testing.T) {
 		{
 			name: "home", path: "/", handler: dashboard,
 			contentType: "text/html; charset=utf-8",
-			contains:    []string{"设备服务与调试控制台", `href="/ota"`, `href="/websocket"`},
+			contains:    []string{"设备服务与调试控制台", "KiwiVM 服务器", `id="kiwi-progress"`, `href="/ota"`, `href="/websocket"`},
 		},
 		{
 			name: "ota", path: "/ota", handler: otaPage,

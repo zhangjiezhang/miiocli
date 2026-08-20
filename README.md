@@ -20,6 +20,10 @@ Command Line:
 
 Config example:
 
+    kiwi:
+      veid: your-veid
+      apiKey: your-api-key
+      intervalSeconds: 30
     trafficAddress: http://127.0.0.1:9000/static
     voice:
       path: /v1/device/ws
@@ -53,6 +57,13 @@ Config example:
         drive: cuco
         hostName: esxi-01
         asyn: true
+
+KiwiVM service credentials are read from `kiwi.veid` and `kiwi.apiKey` in the
+YAML configuration file. When both values are present, the Go service fetches `getServiceInfo` at startup
+and then every `kiwi.intervalSeconds` seconds (30 seconds by default). The latest successful response and its derived quota,
+traffic, and reset-time fields are exposed as `data.kiwi` by `/static` and shown
+on the web console. A transient API failure is reported in the status fields
+without discarding the last successful data.
 
 **Web console**
 --
