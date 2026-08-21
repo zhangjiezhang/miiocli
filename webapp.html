@@ -120,8 +120,9 @@
         ]);
         if (!response.ok) throw new Error(response.status === 401 ? "管理员 Token 无效" : `加载失败 (${response.status})`);
         const data = await response.json();
-        status.textContent = `共 ${data.releases.length} 个版本`;
-        rows.innerHTML = data.releases.length ? data.releases.map((release) => {
+        const releases = Array.isArray(data.releases) ? data.releases : [];
+        status.textContent = `共 ${releases.length} 个版本`;
+        rows.innerHTML = releases.length ? releases.map((release) => {
           const active = release.id === currentReleaseID;
           return `<tr class="${active ? "active-release" : ""}">
             <td><span class="mono">${escapeHTML(release.version)}</span>${active ? '<span class="badge active-badge">当前</span>' : ""}</td>

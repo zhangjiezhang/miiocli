@@ -80,6 +80,13 @@ func TestWebReleaseAuthorizationAndDuplicateControlVersion(t *testing.T) {
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated list returned %d", response.Code)
 	}
+	authorized := httptest.NewRequest(http.MethodGet, "/v1/web/releases", nil)
+	authorized.Header.Set("Authorization", "Bearer admin-secret")
+	response = httptest.NewRecorder()
+	service.HandleReleases(response, authorized)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"releases\":[]}\n" {
+		t.Fatalf("empty release list returned %d: %s", response.Code, response.Body.String())
+	}
 
 	uploadTestWebArtifact(t, service, "1.0.0", 7, nil)
 	body, contentType := testWebUploadBody(t, "1.0.1", 7, nil)

@@ -119,7 +119,7 @@ func (s *WebReleaseService) HandleReleases(w http.ResponseWriter, r *http.Reques
 	switch r.Method {
 	case http.MethodGet:
 		s.mu.RLock()
-		releases := append([]WebRelease(nil), s.releases...)
+		releases := append([]WebRelease{}, s.releases...)
 		s.mu.RUnlock()
 		sort.Slice(releases, func(i, j int) bool { return releases[i].CreatedAt.After(releases[j].CreatedAt) })
 		writeJSON(w, http.StatusOK, map[string]any{"releases": releases})
