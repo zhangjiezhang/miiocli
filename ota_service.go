@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 const (
 	defaultOTADirectory = "./releases"
 	maxFirmwareSize     = 3 * 1024 * 1024
+	maxOTAReleases      = 3
 )
 
 var safeReleasePart = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
@@ -69,6 +71,14 @@ func NewOTAService(cfg OTAConfig, devices map[string]VoiceDeviceConfig) (*OTASer
 	if err := s.load(); err != nil {
 		return nil, err
 	}
+	removed := s.pruneReleasesLocked()
+	if len(removed) > 0 {
+		if err := s.saveLocked(); err != nil {
+			return nil, fmt.Errorf("prune OTA index: %w", err)
+		}
+	}
+	s.removeFirmware(removed)
+	s.removeOrphanFirmware()
 	return s, nil
 }
 
@@ -258,10 +268,12 @@ func (s *OTAService) upload(w http.ResponseWriter, r *http.Request) {
 		Size: size, SHA256: hex.EncodeToString(hash.Sum(nil)), CreatedAt: time.Now().UTC(), FileName: fileName,
 	}
 	s.mu.Lock()
+	previousReleases := append([]OTARelease(nil), s.releases...)
 	s.releases = append(s.releases, release)
+	removed := s.pruneReleasesLocked()
 	err = s.saveLocked()
 	if err != nil {
-		s.releases = s.releases[:len(s.releases)-1]
+		s.releases = previousReleases
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -269,6 +281,7 @@ func (s *OTAService) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.removeFirmware(removed)
 	writeJSON(w, http.StatusCreated, release)
 }
 
@@ -349,6 +362,57 @@ func (s *OTAService) saveLocked() error {
 	index := filepath.Join(s.cfg.Directory, "index.json")
 	_ = os.Remove(index)
 	return os.Rename(temp, index)
+}
+
+func (s *OTAService) pruneReleasesLocked() []OTARelease {
+	if len(s.releases) <= maxOTAReleases {
+		return nil
+	}
+	sort.Slice(s.releases, func(i, j int) bool {
+		if s.releases[i].CreatedAt.Equal(s.releases[j].CreatedAt) {
+			return s.releases[i].ID > s.releases[j].ID
+		}
+		return s.releases[i].CreatedAt.After(s.releases[j].CreatedAt)
+	})
+	removed := append([]OTARelease(nil), s.releases[maxOTAReleases:]...)
+	s.releases = s.releases[:maxOTAReleases]
+	return removed
+}
+
+func (s *OTAService) removeFirmware(releases []OTARelease) {
+	for _, release := range releases {
+		path := filepath.Join(s.cfg.Directory, release.FileName)
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove obsolete OTA firmware %s: %v", release.FileName, err)
+		}
+	}
+}
+
+func (s *OTAService) removeOrphanFirmware() {
+	s.mu.RLock()
+	active := make(map[string]struct{}, len(s.releases))
+	for _, release := range s.releases {
+		active[release.FileName] = struct{}{}
+	}
+	s.mu.RUnlock()
+
+	entries, err := os.ReadDir(s.cfg.Directory)
+	if err != nil {
+		log.Printf("list OTA firmware directory: %v", err)
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".bin" {
+			continue
+		}
+		if _, ok := active[name]; ok {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.cfg.Directory, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove obsolete OTA firmware %s: %v", name, err)
+		}
+	}
 }
 
 func requestBaseURL(r *http.Request) string {

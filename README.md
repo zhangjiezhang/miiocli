@@ -153,5 +153,6 @@ Admin endpoints:
 - `DELETE /v1/ota/releases/<release-id>`
 
 The uploaded version must match the ESP-IDF application version embedded in the `.bin`. Set the firmware version in the project root `version.txt` before building and uploading.
+The service retains the three most recently uploaded releases. Older release records and firmware files are removed automatically after an upload and when the service starts.
 
 Before the first OTA release, flash the ESP32 once over USB with the new partition table, bootloader, OTA data, and factory application. Later releases only require uploading `build/lvgl.bin` on the OTA page. Changing from the old single factory partition to A/B slots cannot be done safely by an application-only OTA.

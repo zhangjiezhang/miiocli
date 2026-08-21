@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestOTAReleaseLifecycle(t *testing.T) {
@@ -92,6 +96,77 @@ func TestOTAAuthorization(t *testing.T) {
 	service.HandleReleases(authorizedRecorder, authorized)
 	if authorizedRecorder.Code != http.StatusOK || authorizedRecorder.Body.String() != "{\"releases\":[]}\n" {
 		t.Fatalf("empty release list returned %d: %s", authorizedRecorder.Code, authorizedRecorder.Body.String())
+	}
+}
+
+func TestOTAReleasesKeepLatestThree(t *testing.T) {
+	directory := t.TempDir()
+	service, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldest := uploadTestFirmware(t, service, "1.0.0")
+	uploadTestFirmware(t, service, "1.0.1")
+	uploadTestFirmware(t, service, "1.0.2")
+	uploadTestFirmware(t, service, "1.0.3")
+
+	if len(service.releases) != maxOTAReleases {
+		t.Fatalf("kept %d releases, want %d", len(service.releases), maxOTAReleases)
+	}
+	if _, ok := service.releaseByID(oldest.ID); ok {
+		t.Fatalf("oldest release %s was not removed", oldest.ID)
+	}
+	if _, err := os.Stat(filepath.Join(directory, oldest.ID+".bin")); !os.IsNotExist(err) {
+		t.Fatalf("oldest firmware still exists: %v", err)
+	}
+
+	reloaded, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.releases) != maxOTAReleases {
+		t.Fatalf("reloaded %d releases, want %d", len(reloaded.releases), maxOTAReleases)
+	}
+}
+
+func TestOTAStartupPrunesExistingReleases(t *testing.T) {
+	directory := t.TempDir()
+	service, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createdAt := time.Now().UTC()
+	for i := 0; i < 4; i++ {
+		id := fmt.Sprintf("release-%d", i)
+		fileName := id + ".bin"
+		service.releases = append(service.releases, OTARelease{
+			ID: id, Version: fmt.Sprintf("1.0.%d", i), Channel: "stable",
+			CreatedAt: createdAt.Add(time.Duration(i) * time.Hour), FileName: fileName,
+		})
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("firmware"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(directory, "orphan.bin"), []byte("firmware"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.releases) != maxOTAReleases {
+		t.Fatalf("reloaded %d releases, want %d", len(reloaded.releases), maxOTAReleases)
+	}
+	for _, name := range []string{"release-0.bin", "orphan.bin"} {
+		if _, err := os.Stat(filepath.Join(directory, name)); !os.IsNotExist(err) {
+			t.Fatalf("obsolete firmware %s still exists: %v", name, err)
+		}
 	}
 }
 
