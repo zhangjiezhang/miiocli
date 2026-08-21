@@ -54,6 +54,7 @@ var (
 	config       Config
 	voiceHub     *VoiceHub
 	otaService   *OTAService
+	webService   *WebReleaseService
 	codexService *CodexSessionService
 	kiwiService  *KiwiService
 	resultData   ResultData
@@ -61,11 +62,12 @@ var (
 )
 
 type Config struct {
-	TrafficAddress string      `yaml:"trafficAddress"`
-	Mis            []Mi        `yaml:"mis"`
-	Voice          VoiceConfig `yaml:"voice"`
-	OTA            OTAConfig   `yaml:"ota"`
-	Kiwi           KiwiConfig  `yaml:"kiwi"`
+	TrafficAddress string           `yaml:"trafficAddress"`
+	Mis            []Mi             `yaml:"mis"`
+	Voice          VoiceConfig      `yaml:"voice"`
+	OTA            OTAConfig        `yaml:"ota"`
+	WebApp         WebReleaseConfig `yaml:"webApp"`
+	Kiwi           KiwiConfig       `yaml:"kiwi"`
 }
 type Mi struct {
 	Name     string `yaml:"name"`
@@ -113,6 +115,9 @@ var dashboardHTML string
 //go:embed ota.html
 var otaHTML string
 
+//go:embed webapp.html
+var webAppHTML string
+
 //go:embed websocket.html
 var websocketHTML string
 
@@ -157,6 +162,10 @@ func main() {
 	otaService, err = NewOTAService(config.OTA, config.Voice.Devices)
 	if err != nil {
 		log.Printf("OTA service disabled: %v", err)
+	}
+	webService, err = NewWebReleaseService(config.WebApp)
+	if err != nil {
+		log.Printf("web release service disabled: %v", err)
 	}
 	ttsService, err := NewAliyunTTSService(config.Voice.TTS, config.Voice.APIToken, voiceHub)
 	if err != nil {
@@ -222,6 +231,13 @@ func main() {
 		http.Handle("/v1/ota/releases", http.HandlerFunc(otaService.HandleReleases))
 		http.Handle("/v1/ota/releases/", http.HandlerFunc(otaService.HandleRelease))
 	}
+	if webService != nil {
+		http.Handle("/webapp", http.HandlerFunc(webAppPage))
+		http.Handle("/v1/web/releases", http.HandlerFunc(webService.HandleReleases))
+		http.Handle("/v1/web/current", http.HandlerFunc(webService.HandleCurrent))
+		http.Handle("/ipad-show", http.HandlerFunc(webService.HandleApp))
+		http.Handle("/ipad-show/", http.HandlerFunc(webService.HandleApp))
+	}
 	if ttsService != nil {
 		http.Handle("/v1/devices", http.HandlerFunc(ttsService.HandleDevices))
 		http.Handle("/v1/devices/", ttsService)
@@ -266,6 +282,15 @@ func otaPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("content-type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(otaHTML))
+}
+
+func webAppPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/webapp" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("content-type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(webAppHTML))
 }
 
 func dashboard(w http.ResponseWriter, r *http.Request) {

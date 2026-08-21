@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Web App 版本管理 · miiocli</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="topbar">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span><span>miiocli</span></a>
+      <nav class="nav" aria-label="主菜单">
+        <a href="/">首页</a>
+        <a href="/ota">OTA</a>
+        <a class="active" href="/webapp">Web App</a>
+        <a href="/websocket">WebSocket</a>
+        <a href="/codex">Codex</a>
+      </nav>
+      <div class="header-side auth-bar">
+        <input id="token" type="password" autocomplete="current-password" placeholder="管理员 Token" aria-label="管理员 Token">
+        <button class="button" id="saveToken" type="button">连接</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="page-head">
+      <div>
+        <p class="eyebrow">PWA Releases</p>
+        <h1>Web App 版本管理</h1>
+        <p class="lead">管理 iPad 设备看板构建物。上传只保存版本，启用后才会解压并替换当前页面。</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="section-heading">
+        <div><h2>当前生效版本</h2><p>客户端通过公开的当前版本接口读取控制版本</p></div>
+        <a class="button" id="openCurrent" href="/ipad-show/" target="_blank" rel="noopener">打开看板</a>
+      </div>
+      <div class="metrics web-current-metrics">
+        <div class="metric"><div class="metric-label">页面版本</div><div class="metric-value" id="currentVersion">--</div></div>
+        <div class="metric"><div class="metric-label">控制版本</div><div class="metric-value" id="currentControl">--</div></div>
+        <div class="metric"><div class="metric-label">启用时间</div><div class="metric-value compact-value" id="currentActivated">尚未启用</div></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading"><div><h2>上传构建物</h2><p>ZIP 根目录必须包含 index.html、version.json、manifest.webmanifest 和 sw.js</p></div></div>
+      <form id="uploadForm" class="form-grid web-release-form">
+        <label class="field firmware">ZIP 构建物<input name="artifact" type="file" accept=".zip,application/zip" required></label>
+        <label class="field">页面版本<input name="version" placeholder="1.1.0" pattern="v?[0-9]+(\.[0-9]+){0,3}(-[A-Za-z0-9.-]+)?" required></label>
+        <label class="field">控制版本<input name="control_version" type="number" min="1" step="1" placeholder="2" required></label>
+        <button class="button primary" type="submit">上传版本</button>
+        <label class="field span-3">版本说明<textarea name="notes" rows="3" maxlength="500" placeholder="说明本次页面或功能变更"></textarea></label>
+      </form>
+    </section>
+
+    <section class="section">
+      <div class="toolbar">
+        <div><h2>可用版本</h2><div class="status-line" id="status">输入管理员 Token 后加载</div></div>
+        <button class="button icon-button" id="refresh" type="button" title="刷新" aria-label="刷新">↻</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th style="width:14%">页面版本</th><th style="width:12%">控制版本</th><th style="width:18%">大小 / 校验</th><th>版本说明</th><th style="width:18%">上传时间</th><th style="width:86px"></th></tr></thead>
+        <tbody id="releaseRows"><tr><td colspan="6" class="empty">暂无数据</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script>
+    const byID = (id) => document.getElementById(id);
+    const tokenInput = byID("token");
+    const rows = byID("releaseRows");
+    const status = byID("status");
+    const form = byID("uploadForm");
+    let currentReleaseID = "";
+    tokenInput.value = sessionStorage.getItem("webapp_token") || "";
+
+    const headers = () => ({ "Authorization": `Bearer ${tokenInput.value}` });
+    function showToast(message, error = false) {
+      const element = byID("toast");
+      element.textContent = message;
+      element.className = `toast${error ? " error" : ""}`;
+      element.style.display = "block";
+      setTimeout(() => { element.style.display = "none"; }, 3200);
+    }
+    function escapeHTML(value) {
+      const element = document.createElement("span");
+      element.textContent = value == null ? "" : String(value);
+      return element.innerHTML;
+    }
+    function formatSize(bytes) {
+      return bytes < 1048576 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1048576).toFixed(2)} MB`;
+    }
+    function formatDate(value) {
+      return value ? new Date(value).toLocaleString() : "--";
+    }
+
+    async function loadCurrent() {
+      const response = await fetch("/v1/web/current", { cache: "no-store" });
+      if (!response.ok) throw new Error(`当前版本加载失败 (${response.status})`);
+      const data = await response.json();
+      const current = data.current;
+      currentReleaseID = current ? current.release_id : "";
+      byID("currentVersion").textContent = current ? current.version : "--";
+      byID("currentControl").textContent = current ? current.control_version : "--";
+      byID("currentActivated").textContent = current ? formatDate(current.activated_at) : "尚未启用";
+      byID("openCurrent").classList.toggle("disabled-link", !current);
+      return current;
+    }
+
+    async function loadReleases() {
+      status.textContent = "正在加载...";
+      try {
+        const [response] = await Promise.all([
+          fetch("/v1/web/releases", { headers: headers(), cache: "no-store" }),
+          loadCurrent(),
+        ]);
+        if (!response.ok) throw new Error(response.status === 401 ? "管理员 Token 无效" : `加载失败 (${response.status})`);
+        const data = await response.json();
+        status.textContent = `共 ${data.releases.length} 个版本`;
+        rows.innerHTML = data.releases.length ? data.releases.map((release) => {
+          const active = release.id === currentReleaseID;
+          return `<tr class="${active ? "active-release" : ""}">
+            <td><span class="mono">${escapeHTML(release.version)}</span>${active ? '<span class="badge active-badge">当前</span>' : ""}</td>
+            <td><span class="mono">${release.control_version}</span></td>
+            <td>${formatSize(release.size)}<br><span class="hash mono" title="${release.sha256}">${release.sha256.slice(0, 12)}...</span></td>
+            <td>${escapeHTML(release.notes) || '<span class="muted">-</span>'}</td>
+            <td>${formatDate(release.created_at)}</td>
+            <td><button class="button ${active ? "" : "primary"}" data-activate="${release.id}" data-version="${escapeHTML(release.version)}" ${active ? "disabled" : ""}>${active ? "已启用" : "启用"}</button></td>
+          </tr>`;
+        }).join("") : '<tr><td colspan="6" class="empty">暂无版本</td></tr>';
+      } catch (error) {
+        status.textContent = error.message;
+        rows.innerHTML = '<tr><td colspan="6" class="empty">无法加载版本</td></tr>';
+        showToast(error.message, true);
+      }
+    }
+
+    byID("saveToken").addEventListener("click", () => {
+      sessionStorage.setItem("webapp_token", tokenInput.value);
+      loadReleases();
+    });
+    byID("refresh").addEventListener("click", () => tokenInput.value ? loadReleases() : loadCurrent().catch((error) => showToast(error.message, true)));
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button[type=submit]");
+      button.disabled = true;
+      try {
+        const response = await fetch("/v1/web/releases", { method: "POST", headers: headers(), body: new FormData(form) });
+        if (!response.ok) throw new Error((await response.text()).trim() || "上传失败");
+        form.reset();
+        showToast("构建版本已上传，启用后生效");
+        await loadReleases();
+      } catch (error) {
+        showToast(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    rows.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-activate]");
+      if (!button || !confirm(`确定启用页面版本 ${button.dataset.version}？`)) return;
+      button.disabled = true;
+      try {
+        const response = await fetch("/v1/web/current", {
+          method: "PUT",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({ release_id: button.dataset.activate }),
+        });
+        if (!response.ok) throw new Error((await response.text()).trim() || "启用失败");
+        showToast("版本已启用");
+        await loadReleases();
+      } catch (error) {
+        button.disabled = false;
+        showToast(error.message, true);
+      }
+    });
+
+    loadCurrent().catch((error) => showToast(error.message, true));
+    if (tokenInput.value) loadReleases();
+  </script>
+</body>
+</html>

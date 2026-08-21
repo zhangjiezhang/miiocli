@@ -48,6 +48,10 @@ Config example:
     ota:
       directory: ./releases
       adminToken: replace-with-an-ota-admin-secret
+    webApp:
+      directory: ./web-releases
+      publishDirectory: ./ipad-show
+      adminToken: replace-with-a-web-app-admin-secret
     mis:
       - name: plug-living-room
         alias: 客厅插座
@@ -71,6 +75,7 @@ Open `http://<server>:8080/` for the service console. The shared navigation prov
 
 - `/` - feature overview, device metrics, endpoint reference, and usage examples.
 - `/ota` - ESP32 firmware release management.
+- `/webapp` - iPad PWA build upload, activation, and rollback management.
 - `/websocket` - online device selection and voice message delivery through the Speak API.
 - `/codex` - Codex session status, device bindings, event history, and direct session messaging.
 
@@ -156,3 +161,52 @@ The uploaded version must match the ESP-IDF application version embedded in the 
 The service retains the three most recently uploaded releases. Older release records and firmware files are removed automatically after an upload and when the service starts.
 
 Before the first OTA release, flash the ESP32 once over USB with the new partition table, bootloader, OTA data, and factory application. Later releases only require uploading `build/lvgl.bin` on the OTA page. Changing from the old single factory partition to A/B slots cannot be done safely by an application-only OTA.
+
+**Web App release service**
+--
+Set `webApp.adminToken` to enable the service, then open `http://<server>:8080/webapp`. If `webApp` is omitted, all Web App routes remain disabled and the original service behavior is unchanged.
+
+Configuration:
+
+- `webApp.directory` stores uploaded ZIP files and `index.json`. Keep this directory on persistent storage.
+- `webApp.publishDirectory` is the directory replaced when a version is activated. It must be separate from `webApp.directory`.
+- `webApp.adminToken` protects upload, listing, and activation operations.
+
+Build the PWA, then compress the **contents** of `dist` so that `index.html` is at the ZIP root:
+
+```bash
+npm run build
+cd dist
+zip -r ../ipad-show-1.0.0.zip .
+```
+
+The ZIP root must contain `index.html`, `version.json`, `manifest.webmanifest`, and `sw.js`. The version in `version.json` must match the uploaded page version. Archives are limited to 32 MiB compressed, 128 MiB extracted, and 2048 entries; absolute paths, parent traversal, duplicate paths, symbolic links, and special files are rejected.
+
+The release service uses two API resource paths:
+
+- `GET /v1/web/releases` lists uploaded builds. Requires `Authorization: Bearer <web-app-admin-token>`.
+- `POST /v1/web/releases` uploads multipart fields `artifact`, `version`, `control_version`, and optional `notes`. Requires the admin token.
+- `GET /v1/web/current` publicly returns the active page version, positive integer control version, activation time, and `/ipad-show/` URL. It returns `{"current":null}` before the first activation.
+- `PUT /v1/web/current` activates `{"release_id":"<id>"}`. Requires the admin token.
+
+Upload example:
+
+```bash
+curl -X POST http://<server>:8080/v1/web/releases \
+  -H "Authorization: Bearer replace-with-a-web-app-admin-secret" \
+  -F "artifact=@ipad-show-1.0.0.zip;type=application/zip" \
+  -F "version=1.0.0" \
+  -F "control_version=1" \
+  -F "notes=Initial iPad dashboard release"
+```
+
+Activation example:
+
+```bash
+curl -X PUT http://<server>:8080/v1/web/current \
+  -H "Authorization: Bearer replace-with-a-web-app-admin-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"release_id":"<id>"}'
+```
+
+Upload does not alter the active page. Activation validates the stored ZIP again, extracts it to a temporary sibling directory, replaces `webApp.publishDirectory`, and persists the active metadata. A failed validation, extraction, replacement, or metadata write keeps the previous page active. Any uploaded version can be activated again for rollback. The active PWA is served from `/ipad-show/`; `version.json` is never cached, the service worker and HTML use revalidation, and hashed files under `assets/` are immutable.

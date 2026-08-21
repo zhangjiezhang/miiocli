@@ -5,9 +5,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY main.go kiwi_service.go voice_websocket.go voice_command.go codex_sessions.go aliyun_tts.go ota_service.go ./
+COPY main.go kiwi_service.go voice_websocket.go voice_command.go codex_sessions.go aliyun_tts.go ota_service.go web_release_service.go ./
 COPY internal ./internal
-COPY dashboard.html ota.html websocket.html codex.html app.css ./
+COPY dashboard.html ota.html webapp.html websocket.html codex.html app.css ./
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -o gomiio .
 
 FROM pascall/gomiio:29

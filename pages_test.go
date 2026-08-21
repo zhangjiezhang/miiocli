@@ -26,6 +26,11 @@ func TestConsolePages(t *testing.T) {
 			contains:    []string{"OTA 固件管理", `id="uploadForm"`, `name="notes"`},
 		},
 		{
+			name: "webapp", path: "/webapp", handler: webAppPage,
+			contentType: "text/html; charset=utf-8",
+			contains:    []string{"Web App 版本管理", `name="artifact"`, `name="control_version"`, "/v1/web/current"},
+		},
+		{
 			name: "websocket", path: "/websocket", handler: websocketPage,
 			contentType: "text/html; charset=utf-8",
 			contains:    []string{"WebSocket 消息发送", `id="device-select"`, `/v1/devices/${encodeURIComponent(deviceID)}/speak`},
@@ -64,7 +69,7 @@ func TestConsolePages(t *testing.T) {
 }
 
 func TestConsolePagesRejectUnknownPaths(t *testing.T) {
-	for _, handler := range []http.HandlerFunc{dashboard, otaPage, websocketPage, codexPage, appStyles} {
+	for _, handler := range []http.HandlerFunc{dashboard, otaPage, webAppPage, websocketPage, codexPage, appStyles} {
 		response := httptest.NewRecorder()
 		handler(response, httptest.NewRequest(http.MethodGet, "/unknown", nil))
 		if response.Code != http.StatusNotFound {

@@ -161,6 +161,12 @@ textarea { resize: vertical; }
 .metric-label { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 .metric-value { font-size: 24px; line-height: 1.2; font-weight: 760; font-variant-numeric: tabular-nums; }
 .metric-unit { margin-left: 4px; color: var(--muted); font-size: 13px; }
+.metric-value.compact-value { font-size: 16px; }
+.web-current-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.web-release-form { grid-template-columns: minmax(250px, 1.5fr) 145px 145px 120px; }
+.active-release { background: var(--accent-soft); }
+.active-badge { margin-left: 7px; background: var(--panel); }
+.disabled-link { pointer-events: none; opacity: .48; }
 
 .kiwi-view { display: grid; gap: 16px; }
 .kiwi-view[hidden] { display: none; }
@@ -318,6 +324,7 @@ code, .code-block { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 
   .feature-grid, .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .two-column, .voice-layout { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr 1fr; }
+  .web-release-form { grid-template-columns: 1fr 1fr; }
   .form-grid .firmware, .form-grid .span-3 { grid-column: 1 / -1; }
   .compact-head { align-items: stretch; flex-direction: column; }
   .codex-workspace { grid-template-columns: 260px minmax(0, 1fr); }
@@ -335,6 +342,7 @@ code, .code-block { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 
   .page-head { margin-bottom: 22px; }
   h1 { font-size: 23px; }
   .feature-grid, .metrics, .form-grid, .voice-auth, .speak-fields { grid-template-columns: 1fr; }
+  .web-current-metrics, .web-release-form { grid-template-columns: 1fr; }
   .server-identity { align-items: flex-start; flex-direction: column; }
   .server-addresses { justify-content: flex-start; }
   .resource-grid { grid-template-columns: 1fr; }
