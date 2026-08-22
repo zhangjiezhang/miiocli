@@ -170,7 +170,7 @@ Configuration:
 
 - `webApp.directory` stores uploaded ZIP files and `index.json`. Keep this directory on persistent storage.
 - `webApp.publishDirectory` is the directory replaced when a version is activated. It must be separate from `webApp.directory`.
-- `webApp.adminToken` protects upload, listing, and activation operations.
+- `webApp.adminToken` protects upload, listing, deletion, and activation operations.
 
 Build the PWA, then compress the **contents** of `dist` so that `index.html` is at the ZIP root:
 
@@ -186,6 +186,7 @@ The release service uses two API resource paths:
 
 - `GET /v1/web/releases` lists uploaded builds. Requires `Authorization: Bearer <web-app-admin-token>`.
 - `POST /v1/web/releases` uploads multipart fields `artifact`, `version`, `control_version`, and optional `notes`. Requires the admin token.
+- `DELETE /v1/web/releases/<release-id>` deletes a non-active build and its ZIP. Requires the admin token; the current release cannot be deleted.
 - `GET /v1/web/current` publicly returns the active page version, positive integer control version, activation time, and `/ipad-show/` URL. It returns `{"current":null}` before the first activation.
 - `PUT /v1/web/current` activates `{"release_id":"<id>"}`. Requires the admin token.
 
@@ -210,3 +211,5 @@ curl -X PUT http://<server>:8080/v1/web/current \
 ```
 
 Upload does not alter the active page. Activation validates the stored ZIP again, extracts it to a temporary sibling directory, replaces `webApp.publishDirectory`, and persists the active metadata. A failed validation, extraction, replacement, or metadata write keeps the previous page active. Any uploaded version can be activated again for rollback. The active PWA is served from `/ipad-show/`; `version.json` is never cached, the service worker and HTML use revalidation, and hashed files under `assets/` are immutable.
+
+The service retains at most five Web App releases. After each upload and when the service starts, it keeps the current release plus the newest other releases and automatically removes excess records, ZIP artifacts, and orphan ZIP files.

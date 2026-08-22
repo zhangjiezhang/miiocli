@@ -234,6 +234,7 @@ func main() {
 	if webService != nil {
 		http.Handle("/webapp", http.HandlerFunc(webAppPage))
 		http.Handle("/v1/web/releases", http.HandlerFunc(webService.HandleReleases))
+		http.Handle("/v1/web/releases/", http.HandlerFunc(webService.HandleRelease))
 		http.Handle("/v1/web/current", http.HandlerFunc(webService.HandleCurrent))
 		http.Handle("/ipad-show", http.HandlerFunc(webService.HandleApp))
 		http.Handle("/ipad-show/", http.HandlerFunc(webService.HandleApp))

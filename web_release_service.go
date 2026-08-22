@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -25,6 +26,7 @@ const (
 	maxWebArtifactSize         = 32 * 1024 * 1024
 	maxWebExtractedSize        = 128 * 1024 * 1024
 	maxWebArchiveFiles         = 2048
+	maxWebReleases             = 5
 	webAppPath                 = "/ipad-show/"
 )
 
@@ -106,6 +108,14 @@ func NewWebReleaseService(cfg WebReleaseConfig) (*WebReleaseService, error) {
 	if err := service.load(); err != nil {
 		return nil, err
 	}
+	removed := service.pruneReleasesLocked()
+	if len(removed) > 0 {
+		if err := service.saveLocked(); err != nil {
+			return nil, fmt.Errorf("prune Web App release index: %w", err)
+		}
+	}
+	service.removeArtifacts(removed)
+	service.removeOrphanArtifacts()
 	return service, nil
 }
 
@@ -128,6 +138,56 @@ func (s *WebReleaseService) HandleReleases(w http.ResponseWriter, r *http.Reques
 	default:
 		methodNotAllowed(w, http.MethodGet, http.MethodPost)
 	}
+}
+
+func (s *WebReleaseService) HandleRelease(w http.ResponseWriter, r *http.Request) {
+	if !secureBearer(r, s.cfg.AdminToken) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w, http.MethodDelete)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/web/releases/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	s.mu.Lock()
+	index := -1
+	for i := range s.releases {
+		if s.releases[i].ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		s.mu.Unlock()
+		http.NotFound(w, r)
+		return
+	}
+	if s.current != nil && s.current.ReleaseID == id {
+		s.mu.Unlock()
+		http.Error(w, "current release cannot be deleted", http.StatusConflict)
+		return
+	}
+	release := s.releases[index]
+	s.releases = append(s.releases[:index], s.releases[index+1:]...)
+	err := s.saveLocked()
+	if err != nil {
+		s.releases = append(s.releases, WebRelease{})
+		copy(s.releases[index+1:], s.releases[index:])
+		s.releases[index] = release
+	}
+	s.mu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.removeArtifacts([]WebRelease{release})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // HandleCurrent exposes the second resource path: GET is public for installed
@@ -312,15 +372,18 @@ func (s *WebReleaseService) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "control_version already exists", http.StatusConflict)
 		return
 	}
+	previousReleases := append([]WebRelease(nil), s.releases...)
 	s.releases = append(s.releases, release)
+	removed := s.pruneReleasesLocked()
 	if err := s.saveLocked(); err != nil {
-		s.releases = s.releases[:len(s.releases)-1]
+		s.releases = previousReleases
 		s.mu.Unlock()
 		_ = os.Remove(finalPath)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.mu.Unlock()
+	s.removeArtifacts(removed)
 	writeJSON(w, http.StatusCreated, release)
 }
 
@@ -510,6 +573,88 @@ func (s *WebReleaseService) hasControlVersionLocked(version uint64) bool {
 		}
 	}
 	return false
+}
+
+func (s *WebReleaseService) pruneReleasesLocked() []WebRelease {
+	if len(s.releases) <= maxWebReleases {
+		return nil
+	}
+	sort.Slice(s.releases, func(i, j int) bool {
+		if s.releases[i].CreatedAt.Equal(s.releases[j].CreatedAt) {
+			return s.releases[i].ID > s.releases[j].ID
+		}
+		return s.releases[i].CreatedAt.After(s.releases[j].CreatedAt)
+	})
+
+	activeID := ""
+	activePresent := false
+	if s.current != nil {
+		activeID = s.current.ReleaseID
+		for i := range s.releases {
+			if s.releases[i].ID == activeID {
+				activePresent = true
+				break
+			}
+		}
+	}
+	nonCurrentLimit := maxWebReleases
+	if activePresent {
+		nonCurrentLimit--
+	}
+	kept := make([]WebRelease, 0, maxWebReleases)
+	removed := make([]WebRelease, 0, len(s.releases)-maxWebReleases)
+	nonCurrentCount := 0
+	for _, release := range s.releases {
+		if activePresent && release.ID == activeID {
+			kept = append(kept, release)
+			continue
+		}
+		if nonCurrentCount < nonCurrentLimit {
+			kept = append(kept, release)
+			nonCurrentCount++
+			continue
+		}
+		removed = append(removed, release)
+	}
+	sort.Slice(kept, func(i, j int) bool { return kept[i].CreatedAt.After(kept[j].CreatedAt) })
+	s.releases = kept
+	return removed
+}
+
+func (s *WebReleaseService) removeArtifacts(releases []WebRelease) {
+	for _, release := range releases {
+		filePath := filepath.Join(s.cfg.Directory, release.FileName)
+		if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove obsolete Web App artifact %s: %v", release.FileName, err)
+		}
+	}
+}
+
+func (s *WebReleaseService) removeOrphanArtifacts() {
+	s.mu.RLock()
+	active := make(map[string]struct{}, len(s.releases))
+	for _, release := range s.releases {
+		active[release.FileName] = struct{}{}
+	}
+	s.mu.RUnlock()
+
+	entries, err := os.ReadDir(s.cfg.Directory)
+	if err != nil {
+		log.Printf("list Web App release directory: %v", err)
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(name), ".zip") {
+			continue
+		}
+		if _, ok := active[name]; ok {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.cfg.Directory, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove orphan Web App artifact %s: %v", name, err)
+		}
+	}
 }
 
 func (s *WebReleaseService) load() error {

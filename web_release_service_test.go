@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWebReleaseUploadActivateAndServe(t *testing.T) {
@@ -105,6 +106,109 @@ func TestWebReleaseAuthorizationAndDuplicateControlVersion(t *testing.T) {
 	service.HandleCurrent(response, activate)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated activation returned %d", response.Code)
+	}
+}
+
+func TestWebReleaseDeleteRejectsCurrentAndRemovesArtifact(t *testing.T) {
+	root := t.TempDir()
+	service := newTestWebReleaseService(t, root)
+	current := uploadTestWebArtifact(t, service, "1.0.0", 1, nil)
+	activateTestWebRelease(t, service, current.ID)
+	obsolete := uploadTestWebArtifact(t, service, "1.0.1", 2, nil)
+
+	unauthorized := httptest.NewRequest(http.MethodDelete, "/v1/web/releases/"+obsolete.ID, nil)
+	response := httptest.NewRecorder()
+	service.HandleRelease(response, unauthorized)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized delete returned %d", response.Code)
+	}
+
+	deleteCurrent := httptest.NewRequest(http.MethodDelete, "/v1/web/releases/"+current.ID, nil)
+	deleteCurrent.Header.Set("Authorization", "Bearer admin-secret")
+	response = httptest.NewRecorder()
+	service.HandleRelease(response, deleteCurrent)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("current release delete returned %d: %s", response.Code, response.Body.String())
+	}
+
+	artifactPath := filepath.Join(service.cfg.Directory, obsolete.ID+".zip")
+	deleteObsolete := httptest.NewRequest(http.MethodDelete, "/v1/web/releases/"+obsolete.ID, nil)
+	deleteObsolete.Header.Set("Authorization", "Bearer admin-secret")
+	response = httptest.NewRecorder()
+	service.HandleRelease(response, deleteObsolete)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("release delete returned %d: %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(artifactPath); !os.IsNotExist(err) {
+		t.Fatalf("deleted artifact still exists: %v", err)
+	}
+	if len(service.releases) != 1 || service.releases[0].ID != current.ID {
+		t.Fatalf("unexpected releases after delete: %+v", service.releases)
+	}
+
+	response = httptest.NewRecorder()
+	service.HandleRelease(response, deleteObsolete)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("repeated delete returned %d", response.Code)
+	}
+}
+
+func TestWebReleaseRetentionKeepsCurrentAndLatestFive(t *testing.T) {
+	root := t.TempDir()
+	service := newTestWebReleaseService(t, root)
+	current := uploadTestWebArtifact(t, service, "1.0.1", 1, nil)
+	activateTestWebRelease(t, service, current.ID)
+	second := uploadTestWebArtifact(t, service, "1.0.2", 2, nil)
+	for controlVersion := uint64(3); controlVersion <= 6; controlVersion++ {
+		uploadTestWebArtifact(t, service, fmt.Sprintf("1.0.%d", controlVersion), controlVersion, nil)
+	}
+
+	if len(service.releases) != maxWebReleases {
+		t.Fatalf("kept %d releases, want %d", len(service.releases), maxWebReleases)
+	}
+	if !hasTestWebRelease(service.releases, current.ID) {
+		t.Fatal("current release was pruned")
+	}
+	if hasTestWebRelease(service.releases, second.ID) {
+		t.Fatal("oldest non-current release was retained")
+	}
+	if _, err := os.Stat(filepath.Join(service.cfg.Directory, second.ID+".zip")); !os.IsNotExist(err) {
+		t.Fatalf("pruned artifact still exists: %v", err)
+	}
+
+	stale := WebRelease{
+		ID: "stale-release", Version: "0.9.0", ControlVersion: 99,
+		CreatedAt: time.Unix(1, 0).UTC(), FileName: "stale-release.zip",
+	}
+	stalePath := filepath.Join(service.cfg.Directory, stale.FileName)
+	if err := os.WriteFile(stalePath, []byte("stale"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	orphanPath := filepath.Join(service.cfg.Directory, "orphan.zip")
+	if err := os.WriteFile(orphanPath, []byte("orphan"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	service.releases = append(service.releases, stale)
+	if err := service.saveLocked(); err != nil {
+		service.mu.Unlock()
+		t.Fatal(err)
+	}
+	service.mu.Unlock()
+
+	reloaded, err := NewWebReleaseService(WebReleaseConfig{
+		Directory: service.cfg.Directory, PublishDirectory: service.cfg.PublishDirectory, AdminToken: "admin-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.releases) != maxWebReleases || hasTestWebRelease(reloaded.releases, stale.ID) {
+		t.Fatalf("unexpected releases after restart pruning: %+v", reloaded.releases)
+	}
+	for _, filePath := range []string{stalePath, orphanPath} {
+		if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+			t.Fatalf("obsolete artifact still exists at %s: %v", filePath, err)
+		}
 	}
 }
 
@@ -270,6 +374,15 @@ func assertFileContents(t *testing.T, path, expected string) {
 	if !strings.Contains(string(data), expected) {
 		t.Fatalf("%s = %q, want text containing %q", path, data, expected)
 	}
+}
+
+func hasTestWebRelease(releases []WebRelease, id string) bool {
+	for _, release := range releases {
+		if release.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func strconvFormatUint(value uint64) string {

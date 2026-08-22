@@ -28,7 +28,7 @@ func TestConsolePages(t *testing.T) {
 		{
 			name: "webapp", path: "/webapp", handler: webAppPage,
 			contentType: "text/html; charset=utf-8",
-			contains:    []string{"Web App 版本管理", `name="artifact"`, `name="control_version"`, "/v1/web/current"},
+			contains:    []string{"Web App 版本管理", `name="artifact"`, `name="control_version"`, "/v1/web/current", `data-delete`},
 		},
 		{
 			name: "websocket", path: "/websocket", handler: websocketPage,

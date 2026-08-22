@@ -62,7 +62,7 @@
         <button class="button icon-button" id="refresh" type="button" title="刷新" aria-label="刷新">↻</button>
       </div>
       <table class="data-table">
-        <thead><tr><th style="width:14%">页面版本</th><th style="width:12%">控制版本</th><th style="width:18%">大小 / 校验</th><th>版本说明</th><th style="width:18%">上传时间</th><th style="width:86px"></th></tr></thead>
+        <thead><tr><th style="width:14%">页面版本</th><th style="width:12%">控制版本</th><th style="width:18%">大小 / 校验</th><th>版本说明</th><th style="width:18%">上传时间</th><th style="width:150px"></th></tr></thead>
         <tbody id="releaseRows"><tr><td colspan="6" class="empty">暂无数据</td></tr></tbody>
       </table>
     </section>
@@ -130,7 +130,7 @@
             <td>${formatSize(release.size)}<br><span class="hash mono" title="${release.sha256}">${release.sha256.slice(0, 12)}...</span></td>
             <td>${escapeHTML(release.notes) || '<span class="muted">-</span>'}</td>
             <td>${formatDate(release.created_at)}</td>
-            <td><button class="button ${active ? "" : "primary"}" data-activate="${release.id}" data-version="${escapeHTML(release.version)}" ${active ? "disabled" : ""}>${active ? "已启用" : "启用"}</button></td>
+            <td><div class="release-actions"><button class="button ${active ? "" : "primary"}" data-activate="${release.id}" data-version="${escapeHTML(release.version)}" ${active ? "disabled" : ""}>${active ? "已启用" : "启用"}</button>${active ? "" : `<button class="button danger" data-delete="${release.id}" data-version="${escapeHTML(release.version)}">删除</button>`}</div></td>
           </tr>`;
         }).join("") : '<tr><td colspan="6" class="empty">暂无版本</td></tr>';
       } catch (error) {
@@ -162,6 +162,21 @@
       }
     });
     rows.addEventListener("click", async (event) => {
+      const deleteButton = event.target.closest("[data-delete]");
+      if (deleteButton) {
+        if (!confirm(`确定删除页面版本 ${deleteButton.dataset.version}？`)) return;
+        deleteButton.disabled = true;
+        try {
+          const response = await fetch(`/v1/web/releases/${encodeURIComponent(deleteButton.dataset.delete)}`, { method: "DELETE", headers: headers() });
+          if (!response.ok) throw new Error((await response.text()).trim() || "删除失败");
+          showToast("版本已删除");
+          await loadReleases();
+        } catch (error) {
+          deleteButton.disabled = false;
+          showToast(error.message, true);
+        }
+        return;
+      }
       const button = event.target.closest("[data-activate]");
       if (!button || !confirm(`确定启用页面版本 ${button.dataset.version}？`)) return;
       button.disabled = true;
