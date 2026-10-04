@@ -73,9 +73,10 @@ func NewOTAService(cfg OTAConfig, devices map[string]VoiceDeviceConfig) (*OTASer
 		return nil, err
 	}
 	removed := s.pruneReleasesLocked()
-	if len(removed) > 0 {
+	pendingChanged := s.normalizePendingUpdateLocked()
+	if len(removed) > 0 || pendingChanged {
 		if err := s.saveLocked(); err != nil {
-			return nil, fmt.Errorf("prune OTA index: %w", err)
+			return nil, fmt.Errorf("update OTA index: %w", err)
 		}
 	}
 	s.removeFirmware(removed)
@@ -202,6 +203,7 @@ func (s *OTAService) HandleRelease(w http.ResponseWriter, r *http.Request) {
 	}
 	release := s.releases[index]
 	s.releases = append(s.releases[:index], s.releases[index+1:]...)
+	s.normalizePendingUpdateLocked()
 	err := s.saveLocked()
 	if err != nil {
 		s.releases = append(s.releases, OTARelease{})
@@ -419,6 +421,38 @@ func (s *OTAService) pruneReleasesLocked() []OTARelease {
 	removed := append([]OTARelease(nil), s.releases[maxOTAReleases:]...)
 	s.releases = s.releases[:maxOTAReleases]
 	return removed
+}
+
+func (s *OTAService) normalizePendingUpdateLocked() bool {
+	if len(s.releases) == 0 {
+		return false
+	}
+	selected := -1
+	for i := range s.releases {
+		if !s.releases[i].PendingUpdate {
+			continue
+		}
+		if selected < 0 || s.releases[i].CreatedAt.After(s.releases[selected].CreatedAt) {
+			selected = i
+		}
+	}
+	if selected < 0 {
+		selected = 0
+		for i := 1; i < len(s.releases); i++ {
+			if s.releases[i].CreatedAt.After(s.releases[selected].CreatedAt) {
+				selected = i
+			}
+		}
+	}
+	changed := false
+	for i := range s.releases {
+		pending := i == selected
+		if s.releases[i].PendingUpdate != pending {
+			s.releases[i].PendingUpdate = pending
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (s *OTAService) removeFirmware(releases []OTARelease) {

@@ -206,6 +206,9 @@ func TestOTAReleasesKeepLatestThree(t *testing.T) {
 	if len(reloaded.releases) != maxOTAReleases {
 		t.Fatalf("reloaded %d releases, want %d", len(reloaded.releases), maxOTAReleases)
 	}
+	if reloaded.PendingVersion() != "1.0.3" {
+		t.Fatalf("migrated pending version = %q, want 1.0.3", reloaded.PendingVersion())
+	}
 }
 
 func TestOTAStartupPrunesExistingReleases(t *testing.T) {
