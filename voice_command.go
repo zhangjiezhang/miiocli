@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	defaultCodexTimeout = 10 * time.Minute
-	maxCodexSummary     = 600
+	defaultCodexTimeout = 10 * time.Minute // Retained for the legacy Codex session package.
+	maxVoiceResponse    = 600
 )
 
 type CodexConfig struct {
@@ -34,7 +34,7 @@ type VoiceCommandService struct {
 	hub        *VoiceHub
 	tts        *AliyunTTSService
 	recognizer *aliyunRecognizer
-	runner     *CodexSessionService
+	runner     VoiceAgent
 	logInput   bool
 }
 
@@ -49,12 +49,12 @@ type recognitionState struct {
 }
 
 func NewVoiceCommandService(cfg VoiceConfig, hub *VoiceHub, tts *AliyunTTSService,
-	runner *CodexSessionService) (*VoiceCommandService, error) {
-	if !cfg.Codex.Enabled {
-		return nil, errors.New("voice.codex.enabled is false")
+	runner VoiceAgent) (*VoiceCommandService, error) {
+	if !cfg.Nanobot.Enabled {
+		return nil, errors.New("voice.nanobot.enabled is false")
 	}
 	if hub == nil || tts == nil || runner == nil {
-		return nil, errors.New("voice hub, TTS service, and Codex session service are required")
+		return nil, errors.New("voice hub, TTS service, and voice agent are required")
 	}
 	if tts.cfg.AppKey == "" || (tts.cfg.Token == "" && (tts.cfg.AccessKeyID == "" || tts.cfg.AccessKeySecret == "")) {
 		return nil, errors.New("Alibaba Cloud NLS credentials are required for speech recognition")
@@ -80,22 +80,18 @@ func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm 
 			deviceID, utteranceID, len(pcm), text)
 	}
 
-	s.sendState(deviceID, taskID, "thinking", "Codex 正在分析", text)
-	timeout := defaultCodexTimeout
-	if s.runner.cfg.TimeoutSeconds > 0 {
-		timeout = time.Duration(s.runner.cfg.TimeoutSeconds) * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	s.sendState(deviceID, taskID, "thinking", "Nanobot 正在分析", text)
+	ctx, cancel := context.WithTimeout(context.Background(), s.runner.Timeout())
 	defer cancel()
 
 	summary, err := s.runner.Send(ctx, taskID, deviceID, text, func(message string) {
 		s.sendState(deviceID, taskID, "working", message, text)
 	})
 	if err != nil {
-		s.fail(deviceID, taskID, fmt.Errorf("Codex 执行失败: %w", err))
+		s.fail(deviceID, taskID, fmt.Errorf("Nanobot 执行失败: %w", err))
 		return
 	}
-	summary = truncateRunes(strings.TrimSpace(summary), maxCodexSummary)
+	summary = truncateRunes(strings.TrimSpace(summary), maxVoiceResponse)
 	if summary == "" {
 		summary = "任务已完成"
 	}

@@ -37,13 +37,11 @@ Config example:
         accessKeyId: your-aliyun-access-key-id
         accessKeySecret: your-aliyun-access-key-secret
         voice: xiaoyun
-      codex:
+      nanobot:
         enabled: true
-        callbackBaseUrl: http://192.168.1.5:9200
-        registerPath: /v1/codex/register
-        eventPath: /v1/codex/events
-        token: replace-with-a-long-random-secret
-        sessionTtlSeconds: 90
+        baseUrl: https://nanobot.local.pascall.cn
+        apiKey: replace-with-a-nanobot-api-key
+        model: nanobot
         timeoutSeconds: 600
     ota:
       directory: ./releases
@@ -77,7 +75,6 @@ Open `http://<server>:8080/` for the service console. The shared navigation prov
 - `/ota` - ESP32 firmware release management.
 - `/webapp` - iPad PWA build upload, activation, and rollback management.
 - `/websocket` - online device selection and voice message delivery through the Speak API.
-- `/codex` - Codex session status, device bindings, event history, and direct session messaging.
 
 **Voice WebSocket**
 --
@@ -85,38 +82,11 @@ The ESP32 connects to `ws://<server>:8080/v1/device/ws` and first sends a `hello
 
 Audio producers may call `VoiceHub.StartAudio` and `VoiceHub.SendOpus` for raw 16 kHz mono Opus, or `VoiceHub.StartPCM` and `VoiceHub.SendPCM` for signed 16-bit little-endian PCM at 16 kHz mono. Binary WebSocket messages must not exceed 1024 bytes.
 
-For push-to-talk commands, the device sends `listen_start`, streams 16 kHz mono signed 16-bit PCM as binary messages, then sends `listen_end`. The server uses Alibaba Cloud NLS speech recognition, routes the text to the Codex session currently bound to that ESP32, and returns `command_state` events (`transcribing`, `thinking`, `working`, `done`, or `error`). The final Codex summary is spoken through the existing TTS stream. A short BOOT press cycles through online Codex sessions; a long press records the command.
+For push-to-talk commands, the device sends `listen_start`, streams 16 kHz mono signed 16-bit PCM as binary messages, then sends `listen_end`. The server uses Alibaba Cloud NLS speech recognition, sends the text to Nanobot through its OpenAI-compatible `/v1/chat/completions` endpoint, and returns `command_state` events (`transcribing`, `thinking`, `working`, `done`, or `error`). The final Nanobot response is spoken through the existing TTS stream. Legacy short BOOT press session events are ignored; a long press records the command.
 
 Set `voice.logInput: true` to log ESP32 utterance IDs, audio size and duration, and recognized text. It defaults to `false`; raw PCM data and authentication tokens are never written to this log. Recognized text may contain sensitive information, so enable it only when needed for diagnostics.
 
-Codex clients keep their normal CLI, SDK/IDEA, or App interaction. A plugin or client adapter registers each existing session with miiocli and exposes an HTTP message endpoint. Messages from the original Codex UI, the `/codex` page, and ESP32 can therefore coexist in the same session. Set a high-entropy connector token in `voice.codex.token` and configure the plugin/adapter with the same value. Because `app.yaml` contains connector, device, API, OTA, and Alibaba Cloud credentials, restrict it to the service account, for example with `chmod 600 app.yaml`.
-
-Connector endpoints:
-
-- `POST /v1/codex/register` - register or heartbeat a session with its `session_id`, `thread_id`, current `turn_id`, client surface, state, capabilities, and message endpoint.
-- `POST /v1/codex/events` - report accepted, working, done, or error events for an external message.
-- `GET /v1/codex/sessions` - list registered sessions for the web console. Uses `voice.apiToken`.
-- `POST /v1/codex/sessions/{session_id}/messages` - send a web-console message to an existing session.
-- `POST /v1/codex/sessions/{session_id}/bind` - bind an ESP32 device to a session.
-
-Registration example:
-
-```json
-{
-  "session_id": "session-123",
-  "thread_id": "thread-123",
-  "turn_id": "turn-456",
-  "surface": "cli",
-  "title": "Firmware development",
-  "project": "lichuang-esp32s3",
-  "branch": "master",
-  "state": "running",
-  "endpoint": "http://codex-host:9210/v1/sessions/session-123/messages",
-  "capabilities": ["turn_start", "turn_steer"]
-}
-```
-
-The adapter decides how to inject a message: use `turn/steer` for a steerable active turn, start a new turn on the same thread when idle, or queue until the client can accept input. A Codex plugin can package the hooks, skill, and adapter, but the plugin must still use the control API provided by its host client. Hooks alone cannot inject an unsolicited user message into an active model turn.
+Nanobot authentication uses `voice.nanobot.apiKey`. Each device is sent as a stable OpenAI `user` value, so Nanobot maintains an independent conversation for every ESP32. `model` is optional and may be omitted if the server is configured to accept its default model. Because `app.yaml` contains device, API, OTA, Alibaba Cloud, and Nanobot credentials, restrict it to the service account, for example with `chmod 600 app.yaml`.
 
 **Aliyun TTS API**
 --

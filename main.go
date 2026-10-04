@@ -49,16 +49,15 @@ var (
 		},
 		[]string{"host_name", "alias"},
 	)
-	filePath     = ""
-	daily        float64
-	config       Config
-	voiceHub     *VoiceHub
-	otaService   *OTAService
-	webService   *WebReleaseService
-	codexService *CodexSessionService
-	kiwiService  *KiwiService
-	resultData   ResultData
-	resultMu     sync.RWMutex
+	filePath    = ""
+	daily       float64
+	config      Config
+	voiceHub    *VoiceHub
+	otaService  *OTAService
+	webService  *WebReleaseService
+	kiwiService *KiwiService
+	resultData  ResultData
+	resultMu    sync.RWMutex
 )
 
 type Config struct {
@@ -171,37 +170,16 @@ func main() {
 	if err != nil {
 		log.Printf("voice TTS endpoint disabled: %v", err)
 	}
-	codexService, err = NewCodexSessionService(config.Voice.Codex, config.Voice.APIToken,
-		config.Voice.Devices)
+	nanobotClient, err := NewNanobotClient(config.Voice.Nanobot)
 	if err != nil {
-		log.Printf("Codex session integration disabled: %v", err)
+		log.Printf("Nanobot integration disabled: %v", err)
 	} else {
-		voiceHub.SetCodexSessionHandler(func(deviceID, action, sessionID string) {
-			switch action {
-			case "session_list":
-				_ = voiceHub.SendCodexSessions(deviceID, codexService.DeviceSessionOptions(deviceID))
-			case "session_next":
-				selected, selectErr := codexService.SelectNextDeviceSession(deviceID)
-				if selectErr != nil {
-					_ = voiceHub.SendCommandState(deviceID, "", "error", selectErr.Error(), "")
-					return
-				}
-				_ = voiceHub.SendCodexSessionSelected(deviceID, selected)
-			case "session_select":
-				selected, selectErr := codexService.SelectDeviceSession(deviceID, sessionID)
-				if selectErr != nil {
-					_ = voiceHub.SendCommandState(deviceID, "", "error", selectErr.Error(), "")
-					return
-				}
-				_ = voiceHub.SendCodexSessionSelected(deviceID, selected)
-			}
-		})
-	}
-	commandService, err := NewVoiceCommandService(config.Voice, voiceHub, ttsService, codexService)
-	if err != nil {
-		log.Printf("voice command service disabled: %v", err)
-	} else {
-		voiceHub.SetUtteranceHandler(commandService.HandleUtterance)
+		commandService, commandErr := NewVoiceCommandService(config.Voice, voiceHub, ttsService, nanobotClient)
+		if commandErr != nil {
+			log.Printf("voice command service disabled: %v", commandErr)
+		} else {
+			voiceHub.SetUtteranceHandler(commandService.HandleUtterance)
+		}
 	}
 	go func() {
 		for {
@@ -217,13 +195,6 @@ func main() {
 	http.Handle("/dashboard", http.HandlerFunc(dashboard))
 	http.Handle("/websocket", http.HandlerFunc(websocketPage))
 	http.Handle(voiceHub.Path(), voiceHub)
-	if codexService != nil {
-		http.Handle("/codex", http.HandlerFunc(codexPage))
-		http.Handle(codexService.RegisterPath(), http.HandlerFunc(codexService.HandleRegister))
-		http.Handle(codexService.EventPath(), http.HandlerFunc(codexService.HandleEvent))
-		http.Handle("/v1/codex/sessions", http.HandlerFunc(codexService.HandleSessions))
-		http.Handle("/v1/codex/sessions/", codexService)
-	}
 	if otaService != nil {
 		http.Handle("/ota", http.HandlerFunc(otaPage))
 		http.Handle("/v1/ota/check", http.HandlerFunc(otaService.HandleCheck))
