@@ -33,7 +33,7 @@ type CodexConfig struct {
 type VoiceCommandService struct {
 	hub        *VoiceHub
 	tts        *AliyunTTSService
-	recognizer *aliyunRecognizer
+	recognizer speechRecognizer
 	runner     VoiceAgent
 	logInput   bool
 }
@@ -56,12 +56,13 @@ func NewVoiceCommandService(cfg VoiceConfig, hub *VoiceHub, tts *AliyunTTSServic
 	if hub == nil || tts == nil || runner == nil {
 		return nil, errors.New("voice hub, TTS service, and voice agent are required")
 	}
-	if tts.cfg.AppKey == "" || (tts.cfg.Token == "" && (tts.cfg.AccessKeyID == "" || tts.cfg.AccessKeySecret == "")) {
-		return nil, errors.New("Alibaba Cloud NLS credentials are required for speech recognition")
+	recognizer, err := newSpeechRecognizer(cfg.ASR, tts.cfg)
+	if err != nil {
+		return nil, err
 	}
 	return &VoiceCommandService{
 		hub: hub, tts: tts,
-		recognizer: &aliyunRecognizer{cfg: tts.cfg},
+		recognizer: recognizer,
 		runner:     runner,
 		logInput:   cfg.LogInput,
 	}, nil

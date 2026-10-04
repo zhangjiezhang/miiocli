@@ -29,6 +29,12 @@ Config example:
       path: /v1/device/ws
       apiToken: replace-with-an-api-secret
       logInput: false
+      asr:
+        provider: auto
+        localUrl: http://192.168.1.8:18080
+        # Optional when MIIOCLI_LOCAL_ASR_TOKEN is set in the container environment.
+        localToken: replace-with-the-rk3588-asr-token
+        timeoutSeconds: 15
       devices:
         szp-001:
           token: replace-with-a-device-secret
@@ -82,7 +88,22 @@ The ESP32 connects to `ws://<server>:8080/v1/device/ws` and first sends a `hello
 
 Audio producers may call `VoiceHub.StartAudio` and `VoiceHub.SendOpus` for raw 16 kHz mono Opus, or `VoiceHub.StartPCM` and `VoiceHub.SendPCM` for signed 16-bit little-endian PCM at 16 kHz mono. Binary WebSocket messages must not exceed 1024 bytes.
 
-For push-to-talk commands, the device sends `listen_start`, streams 16 kHz mono signed 16-bit PCM as binary messages, then sends `listen_end`. The server uses Alibaba Cloud NLS speech recognition, sends the text to Nanobot through its OpenAI-compatible `/v1/chat/completions` endpoint, and returns `command_state` events (`transcribing`, `thinking`, `working`, `done`, or `error`). The final Nanobot response is spoken through the existing TTS stream. Legacy short BOOT press session events are ignored; a long press records the command.
+For push-to-talk commands, the device sends `listen_start`, streams 16 kHz mono signed 16-bit PCM as binary messages, then sends `listen_end`. The server uses the configured ASR provider, sends the text to Nanobot through its OpenAI-compatible `/v1/chat/completions` endpoint, and returns `command_state` events (`transcribing`, `thinking`, `working`, `done`, or `error`). The final Nanobot response is spoken through the existing TTS stream. Legacy short BOOT press session events are ignored; a long press records the command.
+
+`voice.asr.provider` supports `aliyun` (default when omitted), `local` (local service only),
+and `auto` (local first, Alibaba Cloud NLS fallback). Local ASR sends the original PCM to
+`voice.asr.localUrl` + `/v1/transcribe`, with `Content-Type: audio/pcm` and Bearer authentication.
+Use the `ASR_TOKEN` from the RK3588 server's `/home/pascall/asr/.env` as `localToken`, or omit
+`localToken` and set `MIIOCLI_LOCAL_ASR_TOKEN` in the miiocli container environment.
+YAML values are literal: `${VARIABLE}` interpolation is not supported.
+`timeoutSeconds` limits the local HTTP request, defaults to 15, and accepts 1–120.
+Local requests bypass HTTP proxy environment variables and do not follow redirects.
+
+In `auto` mode, connection errors, timeouts, non-200 responses (including busy/429), malformed
+or oversized JSON, and empty results trigger cloud fallback. Caller cancellation does not.
+The deployed RK3588 service accepts audio up to 20 seconds; longer recordings fall back in
+`auto` mode and fail in `local` mode. Aliyun ASR credentials are required for `aliyun` and `auto`.
+TTS still uses Alibaba Cloud in every mode. No ESP32 firmware change is needed.
 
 Set `voice.logInput: true` to log ESP32 utterance IDs, audio size and duration, and recognized text. It defaults to `false`; raw PCM data and authentication tokens are never written to this log. Recognized text may contain sensitive information, so enable it only when needed for diagnostics.
 
