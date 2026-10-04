@@ -124,14 +124,29 @@ func (r *localRecognizer) Transcribe(ctx context.Context, pcm []byte) (string, e
 }
 
 func (r *fallbackRecognizer) Transcribe(ctx context.Context, pcm []byte) (string, error) {
-	text, err := r.local.Transcribe(ctx, pcm)
+	text, _, err := transcribeWithProvider(r, ctx, pcm)
+	return text, err
+}
+
+func transcribeWithProvider(r speechRecognizer, ctx context.Context, pcm []byte) (string, string, error) {
+	fallback, ok := r.(*fallbackRecognizer)
+	if !ok {
+		provider := "aliyun"
+		if _, local := r.(*localRecognizer); local {
+			provider = "local"
+		}
+		text, err := r.Transcribe(ctx, pcm)
+		return text, provider, err
+	}
+	text, provider, err := transcribeWithProvider(fallback.local, ctx, pcm)
 	if err == nil {
-		return text, nil
+		return text, provider, nil
 	}
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return "", provider, ctx.Err()
 	}
 	// Do not log provider response bodies, recognized text, or credentials here.
 	log.Print("local ASR unavailable; falling back to Alibaba Cloud NLS")
-	return r.aliyun.Transcribe(ctx, pcm)
+	text, cloudProvider, err := transcribeWithProvider(fallback.aliyun, ctx, pcm)
+	return text, provider + " → " + cloudProvider, err
 }

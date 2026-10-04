@@ -121,6 +121,9 @@ var webAppHTML string
 //go:embed websocket.html
 var websocketHTML string
 
+//go:embed voice_records.html
+var voiceRecordsHTML string
+
 //go:embed codex.html
 var codexHTML string
 
@@ -167,9 +170,23 @@ func main() {
 	if err != nil {
 		log.Printf("web release service disabled: %v", err)
 	}
+	recordStore, recordsErr := NewVoiceRecordStore(config.Voice.Records, config.Voice.APIToken)
+	if recordsErr != nil {
+		log.Printf("voice record store disabled: %v", recordsErr)
+	} else {
+		recordStore.secrets = []string{config.Voice.APIToken, config.Voice.ASR.LocalToken,
+			os.Getenv("MIIOCLI_LOCAL_ASR_TOKEN"), config.Voice.TTS.Token,
+			config.Voice.TTS.AccessKeyID, config.Voice.TTS.AccessKeySecret, config.Voice.Nanobot.APIKey}
+		for _, device := range config.Voice.Devices {
+			recordStore.secrets = append(recordStore.secrets, device.Token)
+		}
+		go recordStore.Run(context.Background())
+	}
 	ttsService, err := NewAliyunTTSService(config.Voice.TTS, config.Voice.APIToken, voiceHub)
 	if err != nil {
 		log.Printf("voice TTS endpoint disabled: %v", err)
+	} else {
+		ttsService.records = recordStore
 	}
 	nanobotClient, err := NewNanobotClient(config.Voice.Nanobot)
 	if err != nil {
@@ -179,6 +196,7 @@ func main() {
 		if commandErr != nil {
 			log.Printf("voice command service disabled: %v", commandErr)
 		} else {
+			commandService.records = recordStore
 			voiceHub.SetUtteranceHandler(commandService.HandleUtterance)
 		}
 	}
@@ -195,6 +213,11 @@ func main() {
 	http.Handle("/", http.HandlerFunc(dashboard))
 	http.Handle("/dashboard", http.HandlerFunc(dashboard))
 	http.Handle("/websocket", http.HandlerFunc(websocketPage))
+	http.Handle("/voice-records", http.HandlerFunc(voiceRecordsPage))
+	if recordStore != nil {
+		http.Handle("/v1/voice/records", recordStore)
+		http.Handle("/v1/voice/records/", recordStore)
+	}
 	http.Handle(voiceHub.Path(), voiceHub)
 	if otaService != nil {
 		http.Handle("/ota", http.HandlerFunc(otaPage))

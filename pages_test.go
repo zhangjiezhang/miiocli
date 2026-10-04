@@ -41,6 +41,11 @@ func TestConsolePages(t *testing.T) {
 			contains:    []string{"Codex Session", `id="session-list"`, `/v1/codex/sessions/${encodeURIComponent(selectedSessionID)}/messages`},
 		},
 		{
+			name: "voice records", path: "/voice-records", handler: voiceRecordsPage,
+			contentType: "text/html; charset=utf-8",
+			contains:    []string{"语音调用记录", "/v1/voice/records/settings", `id="keyword"`, `id="days"`},
+		},
+		{
 			name: "styles", path: "/app.css", handler: appStyles,
 			contentType: "text/css; charset=utf-8",
 			contains:    []string{".site-header", ".voice-layout"},
@@ -69,7 +74,7 @@ func TestConsolePages(t *testing.T) {
 }
 
 func TestConsolePagesRejectUnknownPaths(t *testing.T) {
-	for _, handler := range []http.HandlerFunc{dashboard, otaPage, webAppPage, websocketPage, codexPage, appStyles} {
+	for _, handler := range []http.HandlerFunc{dashboard, otaPage, webAppPage, websocketPage, codexPage, voiceRecordsPage, appStyles} {
 		response := httptest.NewRecorder()
 		handler(response, httptest.NewRequest(http.MethodGet, "/unknown", nil))
 		if response.Code != http.StatusNotFound {

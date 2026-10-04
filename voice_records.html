@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>语音调用记录 · miiocli</title><link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="site-header"><div class="topbar">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span><span>miiocli</span></a>
+    <nav class="nav" aria-label="主菜单"><a href="/">首页</a><a href="/ota">OTA</a><a href="/webapp">Web App</a><a href="/websocket">WebSocket</a><a class="active" href="/voice-records">语音记录</a></nav>
+  </div></header>
+  <main class="page">
+    <div class="page-head"><div><h1>语音调用记录</h1><p class="lead">查询识别内容、智能体回复和播报结果，比较各阶段耗时。</p></div></div>
+    <section class="section"><div class="section-heading"><h2>访问与保留设置</h2></div>
+      <div class="record-controls">
+        <label class="field">访问令牌<input id="token" type="password" autocomplete="current-password" placeholder="Voice API Token"></label>
+        <button class="button primary" id="load">加载记录</button>
+        <label class="field">记录保留天数<input id="days" type="number" value="5" min="1" max="365"></label>
+        <button class="button" id="save-days">保存设置</button>
+      </div><p class="muted">默认保留 5 天，过期记录自动清理。缩短保留时间会立即删除过期记录。</p>
+    </section>
+    <section class="section">
+      <form id="query" class="record-controls">
+        <label class="field">设备<input id="device" placeholder="全部设备"></label>
+        <label class="field">状态<select id="status"><option value="">全部</option><option value="success">成功</option><option value="error">失败</option><option value="processing">处理中</option><option value="interrupted">已中断</option></select></label>
+        <label class="field">输入 / 输出关键词<input id="keyword" placeholder="搜索对话内容"></label>
+        <label class="field">开始时间<input id="start" type="datetime-local"></label>
+        <label class="field">结束时间<input id="end" type="datetime-local"></label>
+        <button class="button primary" type="submit">查询</button>
+      </form>
+      <p id="message" role="status" class="muted">输入访问令牌后加载记录。</p>
+      <div class="metrics" id="stats" hidden>
+        <div class="metric"><div class="metric-label">匹配记录 / 成功 / 失败</div><div class="metric-value" id="counts">--</div></div>
+        <div class="metric"><div class="metric-label">ASR 平均耗时</div><div class="metric-value" id="asr-ms">--</div></div>
+        <div class="metric"><div class="metric-label">Nanobot 平均耗时</div><div class="metric-value" id="nanobot-ms">--</div></div>
+        <div class="metric"><div class="metric-label">TTS 平均耗时</div><div class="metric-value" id="tts-ms">--</div></div>
+      </div>
+      <div class="record-table"><table><thead><tr><th>时间 / 设备</th><th>状态</th><th>识别 / 输入</th><th>回复 / 播报</th><th>阶段耗时</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+      <div class="section-heading"><button class="button" id="prev" disabled>上一页</button><span id="pagination" class="muted">--</span><button class="button" id="next" disabled>下一页</button></div>
+    </section>
+    <section class="section" id="detail" hidden><div class="section-heading"><h2>调用详情</h2><button class="button" id="close-detail">关闭</button></div><div id="detail-body"></div></section>
+  </main>
+  <script>
+    const $=id=>document.getElementById(id); let page=1, total=0;
+    const labels={success:'成功',error:'失败',processing:'处理中',interrupted:'已中断'};
+    const duration=value=>`${value ?? 0} ms`;
+    function report(error){ $('message').textContent=error.message; $('message').className='error-text'; }
+    async function api(path,options={}){
+      if(!$('token').value.trim()) throw new Error('请输入访问令牌。');
+      const response=await fetch(path,{...options,headers:{Authorization:'Bearer '+$('token').value.trim(),'Content-Type':'application/json'}});
+      if(!response.ok) throw new Error(response.status===401?'访问令牌无效。':`请求失败 (${response.status})`);
+      return response.json();
+    }
+    function cell(row,text){ const td=document.createElement('td'); td.textContent=text; row.append(td); return td; }
+    async function load(){
+      const parameters=new URLSearchParams({page:String(page),limit:'20',device:$('device').value.trim(),status:$('status').value,q:$('keyword').value.trim()});
+      for(const key of ['start','end']) if($(key).value) parameters.set(key,new Date($(key).value).toISOString());
+      const data=await api('/v1/voice/records?'+parameters); total=data.total;
+      $('days').value=data.retention_days; $('stats').hidden=false;
+      $('counts').textContent=`${total} / ${data.stats.success} / ${data.stats.errors}`;
+      for(const stage of ['asr','nanobot','tts']) $(stage+'-ms').textContent=duration(data.stats[stage+'_ms']);
+      $('rows').replaceChildren();
+      for(const record of data.records){
+        const row=document.createElement('tr');
+        cell(row,new Date(record.started_at).toLocaleString()+'\n'+record.device_id);
+        cell(row,labels[record.status]||record.status);
+        cell(row,record.asr.output||record.tts.input||'—');
+        cell(row,record.nanobot.output||record.tts.input||'—');
+        cell(row,`ASR: ${record.asr.status?duration(record.asr.duration_ms):'—'}\nNanobot: ${record.nanobot.status?duration(record.nanobot.duration_ms):'—'}\nTTS: ${record.tts.status?duration(record.tts.duration_ms):'—'}`);
+        const button=document.createElement('button'); button.className='button'; button.textContent='详情'; button.onclick=()=>show(record.id).catch(report);
+        cell(row,'').append(button); $('rows').append(row);
+      }
+      $('pagination').textContent=`第 ${page} / ${Math.max(1,Math.ceil(total/20))} 页 · ${total} 条`;
+      $('prev').disabled=page<=1; $('next').disabled=page*20>=total;
+      $('message').textContent=total?'查询完成。':'暂无匹配记录。'; $('message').className='muted';
+    }
+    async function show(id){
+      const row=await api('/v1/voice/records/'+encodeURIComponent(id)); const body=$('detail-body'); body.replaceChildren();
+      const summary=document.createElement('p'); summary.textContent=`${row.device_id} · ${new Date(row.started_at).toLocaleString()} · ${labels[row.status]} · 总耗时 ${duration(row.total_ms)} · 输入音频 ${row.audio_duration_ms} ms / ${row.audio_bytes} 字节`; body.append(summary);
+      for(const [key,label] of [['asr','语音识别'],['nanobot','Nanobot'],['tts','语音播报']]){
+        const stage=row[key]; const article=document.createElement('article'); article.className='record-detail';
+        const heading=document.createElement('h3'); heading.textContent=`${label} · ${stage.provider||'—'} · ${labels[stage.status]||'未执行'} · ${duration(stage.duration_ms)}`; article.append(heading);
+        for(const [field,name] of [['input','输入'],['output','输出'],['error','错误']]) { if(!stage[field])continue; const p=document.createElement('p');p.textContent=name;const pre=document.createElement('pre');pre.textContent=stage[field];article.append(p,pre); }
+        if(key==='tts'&&stage.status){const p=document.createElement('p');p.textContent=`首段音频 ${duration(stage.first_audio_ms)} · 发送音频 ${stage.audio_bytes||0} 字节`;article.append(p);}
+        body.append(article);
+      }
+      $('detail').hidden=false; $('detail').scrollIntoView({behavior:'smooth',block:'start'});
+    }
+    $('query').onsubmit=event=>{event.preventDefault();page=1;load().catch(report);};
+    $('load').onclick=()=>{page=1;load().catch(report);};
+    $('prev').onclick=()=>{page--;load().catch(report);}; $('next').onclick=()=>{page++;load().catch(report);};
+    $('close-detail').onclick=()=>{$('detail').hidden=true;};
+    $('save-days').onclick=async()=>{
+      try{const days=Number($('days').value);if(!Number.isInteger(days)||days<1||days>365)throw new Error('保留天数需为 1–365。');
+        if(!confirm(`将保留最近 ${days} 天的记录，过期记录会立即删除。是否保存？`))return;
+        await api('/v1/voice/records/settings',{method:'PUT',body:JSON.stringify({retention_days:days})});page=1;await load();
+      }catch(error){report(error);}
+    };
+  </script>
+</body>
+</html>

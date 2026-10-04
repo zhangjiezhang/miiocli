@@ -36,6 +36,7 @@ type VoiceCommandService struct {
 	recognizer speechRecognizer
 	runner     VoiceAgent
 	logInput   bool
+	records    *VoiceRecordStore
 }
 
 type aliyunRecognizer struct {
@@ -70,9 +71,24 @@ func NewVoiceCommandService(cfg VoiceConfig, hub *VoiceHub, tts *AliyunTTSServic
 
 func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm []byte) {
 	taskID := utteranceID
+	record := newVoiceRecord(deviceID, taskID, "voice")
+	record.AudioBytes = len(pcm)
+	record.AudioDurationMS = len(pcm) * 1000 / 32000
+	record.ASR.Input = "PCM 16kHz mono signed 16-bit little-endian"
+	record.ASR.Status = "processing"
+	s.saveRecord(record)
 	s.sendState(deviceID, taskID, "transcribing", "正在识别语音", "")
-	text, err := s.recognizer.Transcribe(context.Background(), pcm)
+	started := time.Now()
+	text, provider, err := transcribeWithProvider(s.recognizer, context.Background(), pcm)
+	record.ASR.DurationMS = time.Since(started).Milliseconds()
+	record.ASR.Provider = provider
+	record.ASR.Output = text
+	record.ASR.Status = "success"
 	if err != nil {
+		record.ASR.Status = "error"
+		record.ASR.Error = err.Error()
+		finishVoiceRecord(&record, "error")
+		s.saveRecord(record)
 		s.fail(deviceID, taskID, fmt.Errorf("语音识别失败: %w", err))
 		return
 	}
@@ -82,13 +98,23 @@ func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm 
 	}
 
 	s.sendState(deviceID, taskID, "thinking", "Nanobot 正在分析", text)
+	record.Nanobot = VoiceStage{Provider: "nanobot", Status: "processing", Input: text}
+	s.saveRecord(record)
 	ctx, cancel := context.WithTimeout(context.Background(), s.runner.Timeout())
 	defer cancel()
 
+	started = time.Now()
 	summary, err := s.runner.Send(ctx, taskID, deviceID, text, func(message string) {
 		s.sendState(deviceID, taskID, "working", message, text)
 	})
+	record.Nanobot.DurationMS = time.Since(started).Milliseconds()
+	record.Nanobot.Output = summary
+	record.Nanobot.Status = "success"
 	if err != nil {
+		record.Nanobot.Status = "error"
+		record.Nanobot.Error = err.Error()
+		finishVoiceRecord(&record, "error")
+		s.saveRecord(record)
 		s.fail(deviceID, taskID, fmt.Errorf("Nanobot 执行失败: %w", err))
 		return
 	}
@@ -97,9 +123,44 @@ func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm 
 		summary = "任务已完成"
 	}
 	s.sendState(deviceID, taskID, "done", summary, text)
-	if _, err := s.tts.Speak(deviceID, summary, ""); err != nil {
+	record.TTS = VoiceStage{Provider: "aliyun", Status: "processing", Input: summary}
+	s.saveRecord(record)
+	if _, err := s.tts.SpeakObserved(deviceID, summary, "", func(stats TTSStats, err error) {
+		completeTTSRecord(&record, stats, err)
+		s.saveRecord(record)
+	}); err != nil {
+		completeTTSRecord(&record, TTSStats{}, err)
+		s.saveRecord(record)
 		log.Printf("voice command TTS failed for %s: %v", deviceID, err)
 	}
+}
+
+func (s *VoiceCommandService) saveRecord(record VoiceRecord) {
+	if err := s.records.Save(record); err != nil {
+		log.Printf("voice record write failed: %v", err)
+	}
+}
+
+func finishVoiceRecord(record *VoiceRecord, status string) {
+	now := time.Now()
+	record.CompletedAt = &now
+	record.Status = status
+	record.TotalMS = now.Sub(record.StartedAt).Milliseconds()
+}
+
+func completeTTSRecord(record *VoiceRecord, stats TTSStats, err error) {
+	record.TTS.DurationMS = stats.DurationMS
+	record.TTS.FirstAudioMS = stats.FirstAudioMS
+	record.TTS.AudioBytes = stats.AudioBytes
+	record.TTS.Output = "PCM 16kHz mono signed 16-bit little-endian"
+	record.TTS.Status = "success"
+	status := "success"
+	if err != nil {
+		record.TTS.Status = "error"
+		record.TTS.Error = err.Error()
+		status = "error"
+	}
+	finishVoiceRecord(record, status)
 }
 
 func (s *VoiceCommandService) sendState(deviceID, taskID, state, message, text string) {

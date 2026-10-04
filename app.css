@@ -17,6 +17,17 @@
   --shadow: 0 1px 2px rgba(21, 29, 38, 0.08);
 }
 
+.record-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+.record-controls .field { flex:1 1 160px; }
+.record-table { overflow-x:auto; margin:20px 0; }
+.record-table table { width:100%; border-collapse:collapse; background:var(--panel); }
+.record-table th, .record-table td { padding:12px; border-bottom:1px solid var(--line); text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; vertical-align:top; }
+.record-table th { white-space:nowrap; color:var(--muted); }
+.record-table td:nth-child(3), .record-table td:nth-child(4) { min-width:160px; max-width:300px; }
+.record-detail { padding:18px; border:1px solid var(--line); border-radius:8px; background:var(--panel); margin:12px 0; }
+.record-detail pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+.metrics[hidden] { display: none; }
+
 * { box-sizing: border-box; letter-spacing: 0; }
 html { min-width: 320px; }
 body {

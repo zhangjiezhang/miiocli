@@ -55,14 +55,24 @@ type AliyunTTSService struct {
 	apiToken string
 	hub      *VoiceHub
 	nextID   uint32
+	records  *VoiceRecordStore
+}
+
+type TTSStats struct {
+	DurationMS   int64
+	FirstAudioMS int64
+	AudioBytes   int64
 }
 
 type synthesisRun struct {
-	hub      *VoiceHub
-	deviceID string
-	streamID uint32
-	errMu    sync.Mutex
-	err      error
+	hub          *VoiceHub
+	deviceID     string
+	streamID     uint32
+	errMu        sync.Mutex
+	err          error
+	started      time.Time
+	firstAudioMS int64
+	audioBytes   int64
 }
 
 func NewAliyunTTSService(cfg AliyunTTSConfig, apiToken string, hub *VoiceHub) (*AliyunTTSService, error) {
@@ -157,6 +167,30 @@ func (s *AliyunTTSService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AliyunTTSService) Speak(deviceID, text, voice string) (uint32, error) {
+	if s.records == nil {
+		return s.SpeakObserved(deviceID, text, voice, nil)
+	}
+	record := newVoiceRecord(deviceID, "", "speak")
+	record.TTS = VoiceStage{Provider: "aliyun", Status: "processing", Input: strings.TrimSpace(text)}
+	if err := s.records.Save(record); err != nil {
+		log.Printf("voice record write failed: %v", err)
+	}
+	id, err := s.SpeakObserved(deviceID, text, voice, func(stats TTSStats, err error) {
+		completeTTSRecord(&record, stats, err)
+		if saveErr := s.records.Save(record); saveErr != nil {
+			log.Printf("voice record write failed: %v", saveErr)
+		}
+	})
+	if err != nil {
+		completeTTSRecord(&record, TTSStats{}, err)
+		if saveErr := s.records.Save(record); saveErr != nil {
+			log.Printf("voice record write failed: %v", saveErr)
+		}
+	}
+	return id, err
+}
+
+func (s *AliyunTTSService) SpeakObserved(deviceID, text, voice string, completed func(TTSStats, error)) (uint32, error) {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > maxSpeakRunes {
 		return 0, errors.New("text must contain 1 to 1000 characters")
@@ -171,18 +205,34 @@ func (s *AliyunTTSService) Speak(deviceID, text, voice string) (uint32, error) {
 	if voice == "" {
 		voice = s.cfg.Voice
 	}
-	go s.synthesize(deviceID, streamID, text, voice)
+	go func() {
+		stats, err := s.synthesize(deviceID, streamID, text, voice)
+		if completed != nil {
+			completed(stats, err)
+		}
+	}()
 	return streamID, nil
 }
 
-func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, voice string) {
+func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, voice string) (stats TTSStats, resultErr error) {
+	started := time.Now()
+	var run *synthesisRun
+	defer func() {
+		stats.DurationMS = time.Since(started).Milliseconds()
+		if run != nil {
+			run.errMu.Lock()
+			stats.FirstAudioMS = run.firstAudioMS
+			stats.AudioBytes = run.audioBytes
+			run.errMu.Unlock()
+		}
+	}()
 	connection, err := s.connectionConfig()
 	if err != nil {
 		log.Printf("TTS token setup failed for %s: %v", deviceID, err)
-		return
+		return stats, err
 	}
 
-	run := &synthesisRun{hub: s.hub, deviceID: deviceID, streamID: streamID}
+	run = &synthesisRun{hub: s.hub, deviceID: deviceID, streamID: streamID, started: started}
 	logger := nls.NewNlsLogger(io.Discard, "NLS", 0)
 	logger.SetLogSil(true)
 	tts, err := nls.NewSpeechSynthesis(connection, logger, false,
@@ -192,6 +242,13 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 		func(pcm []byte, _ interface{}) {
 			if err := run.hub.SendPCM(run.deviceID, run.streamID, pcm); err != nil {
 				run.setError(err)
+			} else {
+				run.errMu.Lock()
+				if run.audioBytes == 0 && len(pcm) > 0 {
+					run.firstAudioMS = time.Since(run.started).Milliseconds()
+				}
+				run.audioBytes += int64(len(pcm))
+				run.errMu.Unlock()
 			}
 		},
 		nil,
@@ -200,13 +257,13 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 		run)
 	if err != nil {
 		log.Printf("TTS initialization failed for %s: %v", deviceID, err)
-		return
+		return stats, err
 	}
 	defer tts.Shutdown()
 
 	if err := s.hub.StartPCM(deviceID, streamID); err != nil {
 		log.Printf("TTS stream start failed for %s: %v", deviceID, err)
-		return
+		return stats, err
 	}
 
 	param := nls.DefaultSpeechSynthesisParam()
@@ -217,7 +274,7 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 	if err != nil {
 		log.Printf("TTS start failed for %s: %v", deviceID, err)
 		_ = s.hub.CancelAudio(deviceID, streamID)
-		return
+		return stats, err
 	}
 
 	completed := false
@@ -232,11 +289,13 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 		}
 		log.Printf("TTS stream failed for %s: %v", deviceID, err)
 		_ = s.hub.CancelAudio(deviceID, streamID)
-		return
+		return stats, err
 	}
 	if err := s.hub.EndAudio(deviceID, streamID); err != nil {
 		log.Printf("TTS stream end failed for %s: %v", deviceID, err)
+		return stats, err
 	}
+	return stats, nil
 }
 
 func (s *AliyunTTSService) connectionConfig() (*nls.ConnectionConfig, error) {

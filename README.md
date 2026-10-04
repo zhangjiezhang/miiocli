@@ -29,6 +29,9 @@ Config example:
       path: /v1/device/ws
       apiToken: replace-with-an-api-secret
       logInput: false
+      records:
+        directory: ./voice-records
+        retentionDays: 5
       asr:
         provider: auto
         localUrl: http://192.168.1.8:18080
@@ -81,6 +84,7 @@ Open `http://<server>:8080/` for the service console. The shared navigation prov
 - `/ota` - ESP32 firmware release management.
 - `/webapp` - iPad PWA build upload, activation, and rollback management.
 - `/websocket` - online device selection and voice message delivery through the Speak API.
+- `/voice-records` - searchable ASR, Nanobot and TTS history, timings and retention settings.
 
 **Voice WebSocket**
 --
@@ -108,6 +112,38 @@ TTS still uses Alibaba Cloud in every mode. No ESP32 firmware change is needed.
 Set `voice.logInput: true` to log ESP32 utterance IDs, audio size and duration, and recognized text. It defaults to `false`; raw PCM data and authentication tokens are never written to this log. Recognized text may contain sensitive information, so enable it only when needed for diagnostics.
 
 Nanobot authentication uses `voice.nanobot.apiKey`. Each device is sent as a stable OpenAI `user` value, so Nanobot maintains an independent conversation for every ESP32. `model` is optional and may be omitted if the server is configured to accept its default model. Because `app.yaml` contains device, API, OTA, Alibaba Cloud, and Nanobot credentials, restrict it to the service account, for example with `chmod 600 app.yaml`.
+
+**Voice call records**
+--
+Recording is enabled automatically. Each interaction is persisted atomically as a private
+JSON file in `voice.records.directory` (default `./voice-records`), including ASR provider,
+recognized text, complete Nanobot reply, actual spoken text, per-stage status/errors and
+elapsed milliseconds. Audio is recorded as format, byte count and duration metadata;
+raw recordings are not retained. TTS records also include time to first audio and bytes sent.
+Direct Speak API calls produce TTS-only records. The full Nanobot response is preserved even
+when device speech is limited to 600 characters.
+
+TTS duration measures synthesis and delivery to the device connection, not the completion
+of audible playback. The record remains processing until asynchronous TTS completes.
+Incomplete operations are marked interrupted after a service restart. Average stage timings
+include completed successful/failed stages only and use all records matching the query.
+
+Keep the directory on persistent storage. The published image runs in `/app`, so the default
+directory is `/app/voice-records` inside the existing `/app` volume. Records default to 5 days;
+`retentionDays` accepts 1–365. The management page can change this setting; it persists in
+`settings.json` and takes precedence over YAML on subsequent starts. Expired records are
+removed at startup, hourly, on queries and immediately after a retention change.
+
+The page and APIs require the existing `voice.apiToken` to access records; the page shell is
+public, and the token is kept only in browser memory. API endpoints (Bearer authentication):
+
+- `GET /v1/voice/records`: filters `device`, `status`, `q` (input/output keyword), `start` and
+  `end` (RFC3339), with `page` and `limit` (default 20, maximum 100); newest records first.
+  Returns compact text previews, matching counts and mean stage timings.
+- `GET /v1/voice/records/<id>`: complete inputs, outputs and timing details.
+- `GET /v1/voice/records/settings`: current retention setting.
+- `PUT /v1/voice/records/settings`: JSON `{"retention_days":5}`; shortening retention
+  permanently removes expired records.
 
 **Aliyun TTS API**
 --

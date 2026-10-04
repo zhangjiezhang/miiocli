@@ -33,6 +33,7 @@ type VoiceConfig struct {
 	Devices  map[string]VoiceDeviceConfig `yaml:"devices"`
 	TTS      AliyunTTSConfig              `yaml:"tts"`
 	ASR      ASRConfig                    `yaml:"asr"`
+	Records  VoiceRecordsConfig           `yaml:"records"`
 	Codex    CodexConfig                  `yaml:"codex"`
 	Nanobot  NanobotConfig                `yaml:"nanobot"`
 }
