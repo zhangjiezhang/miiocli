@@ -118,16 +118,17 @@ Open `http://<server>:8080/ota` to upload and manage ESP32 firmware releases. Th
 
 Device endpoints:
 
-- `GET /v1/ota/check` with `Authorization: Bearer <device-token>`, `X-Device-ID`, `X-Firmware-Version`, and `X-OTA-Channel` headers. Returns `204` when no newer release exists.
+- `GET /v1/ota/check` with `Authorization: Bearer <device-token>`, `X-Device-ID`, and `X-Firmware-Version` headers. Returns the marked pending-update release when its version differs from the device, or `204` when the device already runs it. `X-OTA-Channel` remains accepted for compatibility, while the administrator's unique pending-update selection controls the target release.
 - `GET /v1/ota/firmware/<release-id>.bin` with the same device credentials.
 
 Admin endpoints:
 
 - `GET /v1/ota/releases`
 - `POST /v1/ota/releases` as multipart form data with `firmware`, `version`, `channel`, `mandatory`, and `notes`.
+- `PUT /v1/ota/releases/<release-id>` marks that release as the sole pending-update version.
 - `DELETE /v1/ota/releases/<release-id>`
 
-The uploaded version must match the ESP-IDF application version embedded in the `.bin`. Set the firmware version in the project root `version.txt` before building and uploading.
+The uploaded version must match the ESP-IDF application version embedded in the `.bin`. Set the firmware version in the project root `version.txt` before building and uploading. A new upload is marked pending update automatically and clears the marker from every other release. `/static` exposes it as `data.firmware_version` so devices can trigger an OTA check whenever their local version differs.
 The service retains the three most recently uploaded releases. Older release records and firmware files are removed automatically after an upload and when the service starts.
 
 Before the first OTA release, flash the ESP32 once over USB with the new partition table, bootloader, OTA data, and factory application. Later releases only require uploading `build/lvgl.bin` on the OTA page. Changing from the old single factory partition to A/B slots cannot be done safely by an application-only OTA.

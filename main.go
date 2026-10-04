@@ -89,11 +89,12 @@ type Miio struct {
 }
 
 type ResultData struct {
-	Powers       map[string]float64     `json:"powers"`
-	Temperatures map[string]float64     `json:"temperatures"`
-	Traffic      map[string]interface{} `json:"traffic"`
-	Devices      []DeviceData           `json:"devices,omitempty"`
-	Kiwi         *KiwiData              `json:"kiwi,omitempty"`
+	Powers          map[string]float64     `json:"powers"`
+	Temperatures    map[string]float64     `json:"temperatures"`
+	Traffic         map[string]interface{} `json:"traffic"`
+	Devices         []DeviceData           `json:"devices,omitempty"`
+	Kiwi            *KiwiData              `json:"kiwi,omitempty"`
+	FirmwareVersion string                 `json:"firmware_version,omitempty"`
 }
 type DeviceData struct {
 	Name        string   `json:"name"`
@@ -466,6 +467,9 @@ func snapshotResultData() ResultData {
 	if kiwiService != nil {
 		kiwi := kiwiService.Snapshot()
 		data.Kiwi = &kiwi
+	}
+	if otaService != nil {
+		data.FirmwareVersion = otaService.PendingVersion()
 	}
 	for key, value := range resultData.Powers {
 		data.Powers[key] = value

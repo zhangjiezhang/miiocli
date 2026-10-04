@@ -23,7 +23,7 @@ func TestOTAReleaseLifecycle(t *testing.T) {
 	}
 
 	release := uploadTestFirmware(t, service, "1.2.0")
-	if release.Version != "1.2.0" || release.Channel != "stable" || len(release.SHA256) != 64 {
+	if release.Version != "1.2.0" || release.Channel != "stable" || !release.PendingUpdate || len(release.SHA256) != 64 {
 		t.Fatalf("unexpected release: %+v", release)
 	}
 
@@ -67,6 +67,84 @@ func TestOTAReleaseLifecycle(t *testing.T) {
 	service.HandleRelease(deleteRecorder, deleteRequest)
 	if deleteRecorder.Code != http.StatusNoContent {
 		t.Fatalf("delete returned %d: %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+}
+
+func TestOTAPendingUpdateCanBeChangedAndSupportsRollback(t *testing.T) {
+	service, err := NewOTAService(OTAConfig{Directory: t.TempDir(), AdminToken: "admin-secret"},
+		map[string]VoiceDeviceConfig{"szp-001": {Token: "device-secret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := uploadTestFirmware(t, service, "1.2.0")
+	second := uploadTestFirmware(t, service, "1.3.0")
+	if service.PendingVersion() != second.Version {
+		t.Fatalf("pending version = %q, want %q", service.PendingVersion(), second.Version)
+	}
+	storedFirst, _ := service.releaseByID(first.ID)
+	if storedFirst.PendingUpdate {
+		t.Fatal("previous release remained marked pending after upload")
+	}
+
+	request := httptest.NewRequest(http.MethodPut, "/v1/ota/releases/"+first.ID, nil)
+	request.Header.Set("Authorization", "Bearer admin-secret")
+	recorder := httptest.NewRecorder()
+	service.HandleRelease(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("mark pending returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if service.PendingVersion() != first.Version {
+		t.Fatalf("pending version = %q, want %q", service.PendingVersion(), first.Version)
+	}
+
+	check := httptest.NewRequest(http.MethodGet, "http://ota.local/v1/ota/check", nil)
+	setTestDeviceHeaders(check, second.Version)
+	checkRecorder := httptest.NewRecorder()
+	service.HandleCheck(checkRecorder, check)
+	if checkRecorder.Code != http.StatusOK {
+		t.Fatalf("rollback check returned %d: %s", checkRecorder.Code, checkRecorder.Body.String())
+	}
+	var result struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(checkRecorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Version != first.Version {
+		t.Fatalf("rollback target = %q, want %q", result.Version, first.Version)
+	}
+}
+
+func TestStaticResponseIncludesPendingFirmwareVersion(t *testing.T) {
+	previousOTAService := otaService
+	previousKiwiService := kiwiService
+	previousResult := resultData
+	previousConfig := config
+	t.Cleanup(func() {
+		otaService = previousOTAService
+		kiwiService = previousKiwiService
+		resultData = previousResult
+		config = previousConfig
+	})
+
+	service, err := NewOTAService(OTAConfig{Directory: t.TempDir(), AdminToken: "admin-secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploadTestFirmware(t, service, "2.0.0")
+	otaService = service
+	kiwiService = nil
+	resultData = ResultData{Powers: map[string]float64{}, Temperatures: map[string]float64{}}
+	config = Config{}
+
+	response := httptest.NewRecorder()
+	static(response, httptest.NewRequest(http.MethodGet, "/static", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.Code)
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"firmware_version":"2.0.0"`)) {
+		t.Fatalf("static response does not contain pending firmware: %s", response.Body.String())
 	}
 }
 

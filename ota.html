@@ -29,7 +29,7 @@
       <div>
         <p class="eyebrow">Firmware Releases</p>
         <h1>OTA 固件管理</h1>
-        <p class="lead">发布经过 ESP-IDF 版本校验的固件，并管理 Stable 与 Beta 更新通道。</p>
+        <p class="lead">发布经过 ESP-IDF 版本校验的固件，并指定设备应更新到的版本。</p>
       </div>
     </div>
 
@@ -51,7 +51,7 @@
         <button class="button icon-button" id="refresh" title="刷新" aria-label="刷新">↻</button>
       </div>
       <table class="data-table">
-        <thead><tr><th style="width:14%">版本</th><th style="width:11%">通道</th><th style="width:15%">大小 / 校验</th><th>发布说明</th><th style="width:18%">发布时间</th><th style="width:72px"></th></tr></thead>
+        <thead><tr><th style="width:14%">版本</th><th style="width:11%">通道</th><th style="width:15%">大小 / 校验</th><th>发布说明</th><th style="width:18%">发布时间</th><th style="width:190px"></th></tr></thead>
         <tbody id="releaseRows"><tr><td colspan="6" class="empty">暂无数据</td></tr></tbody>
       </table>
     </section>
@@ -90,13 +90,13 @@
         if (!response.ok) throw new Error(response.status === 401 ? "管理员 Token 无效" : `加载失败 (${response.status})`);
         const data = await response.json();
         status.textContent = `共 ${data.releases.length} 个版本`;
-        rows.innerHTML = data.releases.length ? data.releases.map((release) => `<tr>
-          <td><span class="mono">${escapeHTML(release.version)}</span> ${release.mandatory ? '<span class="mandatory">强制</span>' : ""}</td>
+        rows.innerHTML = data.releases.length ? data.releases.map((release) => `<tr class="${release.pending_update ? "active-release" : ""}">
+          <td><span class="mono">${escapeHTML(release.version)}</span> ${release.pending_update ? '<span class="badge active-badge">待更新</span>' : ""} ${release.mandatory ? '<span class="mandatory">强制</span>' : ""}</td>
           <td><span class="badge ${release.channel === "beta" ? "beta" : ""}">${escapeHTML(release.channel)}</span></td>
           <td>${formatSize(release.size)}<br><span class="hash mono" title="${release.sha256}">${release.sha256.slice(0, 12)}...</span></td>
           <td>${escapeHTML(release.notes) || '<span class="muted">-</span>'}</td>
           <td>${new Date(release.created_at).toLocaleString()}</td>
-          <td><button class="button danger" data-delete="${release.id}">删除</button></td>
+          <td><div class="release-actions"><button class="button ${release.pending_update ? "" : "primary"}" data-pending="${release.id}" data-version="${escapeHTML(release.version)}" ${release.pending_update ? "disabled" : ""}>${release.pending_update ? "已指定" : "设为待更新"}</button><button class="button danger" data-delete="${release.id}">删除</button></div></td>
         </tr>`).join("") : '<tr><td colspan="6" class="empty">暂无版本</td></tr>';
       } catch (error) {
         status.textContent = error.message;
@@ -129,6 +129,19 @@
       }
     });
     rows.addEventListener("click", async (event) => {
+      const pendingButton = event.target.closest("[data-pending]");
+      if (pendingButton) {
+        pendingButton.disabled = true;
+        const response = await fetch(`/v1/ota/releases/${encodeURIComponent(pendingButton.dataset.pending)}`, { method: "PUT", headers: headers() });
+        if (response.ok) {
+          showToast(`已指定 ${pendingButton.dataset.version} 为待更新版本`);
+          loadReleases();
+        } else {
+          pendingButton.disabled = false;
+          showToast((await response.text()).trim() || "指定失败", true);
+        }
+        return;
+      }
       const button = event.target.closest("[data-delete]");
       if (!button || !confirm("确定删除这个版本？")) return;
       button.disabled = true;

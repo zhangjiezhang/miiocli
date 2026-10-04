@@ -35,15 +35,16 @@ type OTAConfig struct {
 }
 
 type OTARelease struct {
-	ID        string    `json:"id"`
-	Version   string    `json:"version"`
-	Channel   string    `json:"channel"`
-	Mandatory bool      `json:"mandatory"`
-	Notes     string    `json:"notes,omitempty"`
-	Size      int64     `json:"size"`
-	SHA256    string    `json:"sha256"`
-	CreatedAt time.Time `json:"created_at"`
-	FileName  string    `json:"-"`
+	ID            string    `json:"id"`
+	Version       string    `json:"version"`
+	Channel       string    `json:"channel"`
+	Mandatory     bool      `json:"mandatory"`
+	PendingUpdate bool      `json:"pending_update"`
+	Notes         string    `json:"notes,omitempty"`
+	Size          int64     `json:"size"`
+	SHA256        string    `json:"sha256"`
+	CreatedAt     time.Time `json:"created_at"`
+	FileName      string    `json:"-"`
 }
 
 type otaIndex struct {
@@ -92,22 +93,17 @@ func (s *OTAService) HandleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current := strings.TrimSpace(r.Header.Get("X-Firmware-Version"))
-	channel := strings.TrimSpace(r.Header.Get("X-OTA-Channel"))
-	if channel == "" {
-		channel = "stable"
-	}
 
 	s.mu.RLock()
 	var selected *OTARelease
 	for i := range s.releases {
 		release := s.releases[i]
-		if release.Channel != channel || compareVersions(release.Version, current) <= 0 {
+		if !release.PendingUpdate || release.Version == current {
 			continue
 		}
-		if selected == nil || compareVersions(release.Version, selected.Version) > 0 {
-			copy := release
-			selected = &copy
-		}
+		copy := release
+		selected = &copy
+		break
 	}
 	s.mu.RUnlock()
 	if selected == nil {
@@ -177,13 +173,17 @@ func (s *OTAService) HandleRelease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if r.Method != http.MethodDelete {
-		methodNotAllowed(w, http.MethodDelete)
-		return
-	}
 	id := strings.TrimPrefix(r.URL.Path, "/v1/ota/releases/")
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPut {
+		s.setPendingUpdate(w, id)
+		return
+	}
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w, http.MethodPut, http.MethodDelete)
 		return
 	}
 
@@ -215,6 +215,33 @@ func (s *OTAService) HandleRelease(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = os.Remove(filepath.Join(s.cfg.Directory, release.FileName))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *OTAService) setPendingUpdate(w http.ResponseWriter, id string) {
+	s.mu.Lock()
+	previousReleases := append([]OTARelease(nil), s.releases...)
+	selected := -1
+	for i := range s.releases {
+		s.releases[i].PendingUpdate = s.releases[i].ID == id
+		if s.releases[i].PendingUpdate {
+			selected = i
+		}
+	}
+	if selected < 0 {
+		s.releases = previousReleases
+		s.mu.Unlock()
+		http.Error(w, "release not found", http.StatusNotFound)
+		return
+	}
+	if err := s.saveLocked(); err != nil {
+		s.releases = previousReleases
+		s.mu.Unlock()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	release := s.releases[selected]
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, release)
 }
 
 func (s *OTAService) upload(w http.ResponseWriter, r *http.Request) {
@@ -264,11 +291,15 @@ func (s *OTAService) upload(w http.ResponseWriter, r *http.Request) {
 
 	release := OTARelease{
 		ID: id, Version: version, Channel: channel,
-		Mandatory: r.FormValue("mandatory") == "true", Notes: strings.TrimSpace(r.FormValue("notes")),
-		Size: size, SHA256: hex.EncodeToString(hash.Sum(nil)), CreatedAt: time.Now().UTC(), FileName: fileName,
+		Mandatory: r.FormValue("mandatory") == "true", PendingUpdate: true,
+		Notes: strings.TrimSpace(r.FormValue("notes")),
+		Size:  size, SHA256: hex.EncodeToString(hash.Sum(nil)), CreatedAt: time.Now().UTC(), FileName: fileName,
 	}
 	s.mu.Lock()
 	previousReleases := append([]OTARelease(nil), s.releases...)
+	for i := range s.releases {
+		s.releases[i].PendingUpdate = false
+	}
 	s.releases = append(s.releases, release)
 	removed := s.pruneReleasesLocked()
 	err = s.saveLocked()
@@ -329,6 +360,17 @@ func (s *OTAService) releaseByID(id string) (OTARelease, bool) {
 		}
 	}
 	return OTARelease{}, false
+}
+
+func (s *OTAService) PendingVersion() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, release := range s.releases {
+		if release.PendingUpdate {
+			return release.Version
+		}
+	}
+	return ""
 }
 
 func (s *OTAService) load() error {

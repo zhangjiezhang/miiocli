@@ -23,7 +23,7 @@ func TestConsolePages(t *testing.T) {
 		{
 			name: "ota", path: "/ota", handler: otaPage,
 			contentType: "text/html; charset=utf-8",
-			contains:    []string{"OTA 固件管理", `id="uploadForm"`, `name="notes"`},
+			contains:    []string{"OTA 固件管理", `id="uploadForm"`, `name="notes"`, `data-pending`},
 		},
 		{
 			name: "webapp", path: "/webapp", handler: webAppPage,
