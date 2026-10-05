@@ -33,12 +33,12 @@ func TestConsolePages(t *testing.T) {
 		{
 			name: "websocket", path: "/websocket", handler: websocketPage,
 			contentType: "text/html; charset=utf-8",
-			contains:    []string{"WebSocket 消息发送", `id="device-select"`, `/v1/devices/${encodeURIComponent(deviceID)}/speak`},
+			contains:    []string{"WebSocket 消息发送", `id="device-select"`, `/console/v1/devices/${encodeURIComponent(deviceID)}/speak`},
 		},
 		{
 			name: "codex", path: "/codex", handler: codexPage,
 			contentType: "text/html; charset=utf-8",
-			contains:    []string{"Codex Session", `id="session-list"`, `/v1/codex/sessions/${encodeURIComponent(selectedSessionID)}/messages`},
+			contains:    []string{"Codex Session", `id="session-list"`, `/console/v1/codex/sessions/${encodeURIComponent(selectedSessionID)}/messages`},
 		},
 		{
 			name: "voice records", path: "/voice-records", handler: voiceRecordsPage,

@@ -11,9 +11,8 @@
   </div></header>
   <main class="page">
     <div class="page-head"><div><h1>语音调用记录</h1><p class="lead">查询识别内容、智能体回复和播报结果，比较各阶段耗时。</p></div></div>
-    <section class="section"><div class="section-heading"><h2>访问与保留设置</h2></div>
+    <section class="section"><div class="section-heading"><h2>保留设置</h2></div>
       <div class="record-controls">
-        <label class="field">访问令牌<input id="token" type="password" autocomplete="current-password" placeholder="Voice API Token"></label>
         <button class="button primary" id="load">加载记录</button>
         <label class="field">记录保留天数<input id="days" type="number" value="5" min="1" max="365"></label>
         <button class="button" id="save-days">保存设置</button>
@@ -28,7 +27,7 @@
         <label class="field">结束时间<input id="end" type="datetime-local"></label>
         <button class="button primary" type="submit">查询</button>
       </form>
-      <p id="message" role="status" class="muted">输入访问令牌后加载记录。</p>
+      <p id="message" role="status" class="muted">正在加载记录。</p>
       <div class="metrics" id="stats" hidden>
         <div class="metric"><div class="metric-label">匹配记录 / 成功 / 失败</div><div class="metric-value" id="counts">--</div></div>
         <div class="metric"><div class="metric-label">ASR 平均耗时</div><div class="metric-value" id="asr-ms">--</div></div>
@@ -46,16 +45,15 @@
     const duration=value=>`${value ?? 0} ms`;
     function report(error){ $('message').textContent=error.message; $('message').className='error-text'; }
     async function api(path,options={}){
-      if(!$('token').value.trim()) throw new Error('请输入访问令牌。');
-      const response=await fetch(path,{...options,headers:{Authorization:'Bearer '+$('token').value.trim(),'Content-Type':'application/json'}});
-      if(!response.ok) throw new Error(response.status===401?'访问令牌无效。':`请求失败 (${response.status})`);
+      const response=await fetch(path,{...options,headers:{'Content-Type':'application/json'}});
+      if(!response.ok) throw new Error(`请求失败 (${response.status})`);
       return response.json();
     }
     function cell(row,text){ const td=document.createElement('td'); td.textContent=text; row.append(td); return td; }
     async function load(){
       const parameters=new URLSearchParams({page:String(page),limit:'20',device:$('device').value.trim(),status:$('status').value,q:$('keyword').value.trim()});
       for(const key of ['start','end']) if($(key).value) parameters.set(key,new Date($(key).value).toISOString());
-      const data=await api('/v1/voice/records?'+parameters); total=data.total;
+      const data=await api('/console/v1/voice/records?'+parameters); total=data.total;
       $('days').value=data.retention_days; $('stats').hidden=false;
       $('counts').textContent=`${total} / ${data.stats.success} / ${data.stats.errors}`;
       for(const stage of ['asr','nanobot','tts']) $(stage+'-ms').textContent=duration(data.stats[stage+'_ms']);
@@ -75,7 +73,7 @@
       $('message').textContent=total?'查询完成。':'暂无匹配记录。'; $('message').className='muted';
     }
     async function show(id){
-      const row=await api('/v1/voice/records/'+encodeURIComponent(id)); const body=$('detail-body'); body.replaceChildren();
+      const row=await api('/console/v1/voice/records/'+encodeURIComponent(id)); const body=$('detail-body'); body.replaceChildren();
       const summary=document.createElement('p'); summary.textContent=`${row.device_id} · ${new Date(row.started_at).toLocaleString()} · ${labels[row.status]} · 总耗时 ${duration(row.total_ms)} · 输入音频 ${row.audio_duration_ms} ms / ${row.audio_bytes} 字节`; body.append(summary);
       for(const [key,label] of [['asr','语音识别'],['nanobot','Nanobot'],['tts','语音播报']]){
         const stage=row[key]; const article=document.createElement('article'); article.className='record-detail';
@@ -93,9 +91,10 @@
     $('save-days').onclick=async()=>{
       try{const days=Number($('days').value);if(!Number.isInteger(days)||days<1||days>365)throw new Error('保留天数需为 1–365。');
         if(!confirm(`将保留最近 ${days} 天的记录，过期记录会立即删除。是否保存？`))return;
-        await api('/v1/voice/records/settings',{method:'PUT',body:JSON.stringify({retention_days:days})});page=1;await load();
+        await api('/console/v1/voice/records/settings',{method:'PUT',body:JSON.stringify({retention_days:days})});page=1;await load();
       }catch(error){report(error);}
     };
+    load().catch(report);
   </script>
 </body>
 </html>

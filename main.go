@@ -238,6 +238,7 @@ func main() {
 		http.Handle("/v1/devices", http.HandlerFunc(ttsService.HandleDevices))
 		http.Handle("/v1/devices/", ttsService)
 	}
+	http.Handle("/console/", consoleAPI(http.DefaultServeMux, config))
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)

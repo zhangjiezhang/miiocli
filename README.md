@@ -134,8 +134,12 @@ directory is `/app/voice-records` inside the existing `/app` volume. Records def
 `settings.json` and takes precedence over YAML on subsequent starts. Expired records are
 removed at startup, hourly, on queries and immediately after a retention change.
 
-The page and APIs require the existing `voice.apiToken` to access records; the page shell is
-public, and the token is kept only in browser memory. API endpoints (Bearer authentication):
+Management pages load automatically without administrator/API token inputs. The console uses
+`/console/v1/...` routes with server-side credentials, never embedded in HTML or browser storage.
+Console routes allow only management endpoints and reject cross-origin browser requests;
+mutations require same-origin browser metadata. Access to the console grants management access.
+The original `/v1/...` external and device APIs retain Bearer authentication.
+Record API endpoints for external callers (Bearer authentication):
 
 - `GET /v1/voice/records`: filters `device`, `status`, `q` (input/output keyword), `start` and
   `end` (RFC3339), with `page` and `limit` (default 20, maximum 100); newest records first.

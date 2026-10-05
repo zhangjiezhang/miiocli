@@ -16,12 +16,7 @@
         <a href="/webapp">Web App</a>
         <a href="/websocket">WebSocket</a>
         <a href="/voice-records">语音记录</a>
-        <a href="/codex">Codex</a>
       </nav>
-      <div class="header-side auth-bar">
-        <input id="token" type="password" autocomplete="current-password" placeholder="管理员 Token" aria-label="管理员 Token">
-        <button class="button" id="saveToken">连接</button>
-      </div>
     </div>
   </header>
 
@@ -48,7 +43,7 @@
 
     <section class="section">
       <div class="toolbar">
-        <div><h2>版本列表</h2><div class="status-line" id="status">尚未连接</div></div>
+        <div><h2>版本列表</h2><div class="status-line" id="status">正在加载</div></div>
         <button class="button icon-button" id="refresh" title="刷新" aria-label="刷新">↻</button>
       </div>
       <table class="data-table">
@@ -61,13 +56,11 @@
   <div id="toast" class="toast" role="status"></div>
   <script>
     const byID = (id) => document.getElementById(id);
-    const tokenInput = byID("token");
     const rows = byID("releaseRows");
     const status = byID("status");
     const form = byID("uploadForm");
-    tokenInput.value = sessionStorage.getItem("ota_token") || "";
 
-    const headers = () => ({ "Authorization": `Bearer ${tokenInput.value}` });
+    const headers = () => ({});
     function showToast(message, error = false) {
       const element = byID("toast");
       element.textContent = message;
@@ -87,8 +80,8 @@
     async function loadReleases() {
       status.textContent = "正在加载...";
       try {
-        const response = await fetch("/v1/ota/releases", { headers: headers() });
-        if (!response.ok) throw new Error(response.status === 401 ? "管理员 Token 无效" : `加载失败 (${response.status})`);
+        const response = await fetch("/console/v1/ota/releases", { headers: headers() });
+        if (!response.ok) throw new Error(`加载失败 (${response.status})`);
         const data = await response.json();
         status.textContent = `共 ${data.releases.length} 个版本`;
         rows.innerHTML = data.releases.length ? data.releases.map((release) => `<tr class="${release.pending_update ? "active-release" : ""}">
@@ -106,10 +99,6 @@
       }
     }
 
-    byID("saveToken").addEventListener("click", () => {
-      sessionStorage.setItem("ota_token", tokenInput.value);
-      loadReleases();
-    });
     byID("refresh").addEventListener("click", loadReleases);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -118,7 +107,7 @@
       const data = new FormData(form);
       data.set("mandatory", form.elements.mandatory.checked ? "true" : "false");
       try {
-        const response = await fetch("/v1/ota/releases", { method: "POST", headers: headers(), body: data });
+        const response = await fetch("/console/v1/ota/releases", { method: "POST", headers: headers(), body: data });
         if (!response.ok) throw new Error((await response.text()).trim() || "发布失败");
         form.reset();
         showToast("版本已发布");
@@ -133,7 +122,7 @@
       const pendingButton = event.target.closest("[data-pending]");
       if (pendingButton) {
         pendingButton.disabled = true;
-        const response = await fetch(`/v1/ota/releases/${encodeURIComponent(pendingButton.dataset.pending)}`, { method: "PUT", headers: headers() });
+        const response = await fetch(`/console/v1/ota/releases/${encodeURIComponent(pendingButton.dataset.pending)}`, { method: "PUT", headers: headers() });
         if (response.ok) {
           showToast(`已指定 ${pendingButton.dataset.version} 为待更新版本`);
           loadReleases();
@@ -146,7 +135,7 @@
       const button = event.target.closest("[data-delete]");
       if (!button || !confirm("确定删除这个版本？")) return;
       button.disabled = true;
-      const response = await fetch(`/v1/ota/releases/${encodeURIComponent(button.dataset.delete)}`, { method: "DELETE", headers: headers() });
+      const response = await fetch(`/console/v1/ota/releases/${encodeURIComponent(button.dataset.delete)}`, { method: "DELETE", headers: headers() });
       if (response.ok) {
         showToast("版本已删除");
         loadReleases();
@@ -155,7 +144,7 @@
         showToast("删除失败", true);
       }
     });
-    if (tokenInput.value) loadReleases();
+    loadReleases();
   </script>
 </body>
 </html>

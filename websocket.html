@@ -16,7 +16,6 @@
         <a href="/webapp">Web App</a>
         <a class="active" href="/websocket">WebSocket</a>
         <a href="/voice-records">语音记录</a>
-        <a href="/codex">Codex</a>
       </nav>
       <div class="header-side status-line"><span class="status-dot" id="status-dot"></span><span id="status-text">未加载设备</span></div>
     </div>
@@ -33,10 +32,9 @@
 
     <section class="section">
       <div class="section-heading">
-        <div><h2>服务鉴权</h2><p>使用配置项 <code>voice.apiToken</code> 访问设备与消息接口</p></div>
+        <div><h2>设备连接</h2><p>自动加载在线设备，可随时刷新</p></div>
       </div>
       <div class="voice-auth">
-        <label class="field">API Token<input id="api-token" type="password" autocomplete="current-password" placeholder="Voice API Token"></label>
         <button class="button primary" id="load-devices" type="button">加载设备</button>
       </div>
     </section>
@@ -48,7 +46,7 @@
             <div><h2>已连接设备</h2><p id="device-count">0 台在线</p></div>
             <button class="button icon-button" id="refresh-devices" type="button" title="刷新设备" aria-label="刷新设备">↻</button>
           </div>
-          <div class="device-list" id="device-list"><div class="empty">输入 API Token 后加载设备</div></div>
+          <div class="device-list" id="device-list"><div class="empty">正在加载设备</div></div>
         </div>
 
         <div>
@@ -82,7 +80,6 @@
   <div id="toast" class="toast" role="status"></div>
   <script>
     const elements = {
-      token: document.getElementById("api-token"),
       load: document.getElementById("load-devices"),
       refresh: document.getElementById("refresh-devices"),
       deviceList: document.getElementById("device-list"),
@@ -99,7 +96,6 @@
       statusDot: document.getElementById("status-dot"),
       statusText: document.getElementById("status-text")
     };
-    elements.token.value = sessionStorage.getItem("voice_api_token") || "";
     let onlineDevices = [];
     let sending = false;
 
@@ -112,7 +108,7 @@
     }
 
     function authorizationHeaders(json = false) {
-      const headers = { "Authorization": `Bearer ${elements.token.value.trim()}` };
+      const headers = {};
       if (json) headers["Content-Type"] = "application/json";
       return headers;
     }
@@ -128,7 +124,7 @@
     }
 
     function updateSendState() {
-      elements.send.disabled = sending || !elements.token.value.trim() || !elements.deviceSelect.value || !elements.text.value.trim();
+      elements.send.disabled = sending || !elements.deviceSelect.value || !elements.text.value.trim();
       elements.characterCount.textContent = `${Array.from(elements.text.value).length} / 1000`;
       updateEndpoint();
     }
@@ -175,18 +171,12 @@
     }
 
     async function loadDevices(quiet = false) {
-      const token = elements.token.value.trim();
-      if (!token) {
-        if (!quiet) showToast("请输入 Voice API Token", true);
-        return;
-      }
       if (!quiet) elements.load.disabled = true;
       setServiceStatus("loading", "正在加载设备");
       try {
-        const response = await fetch("/v1/devices", { headers: authorizationHeaders() });
-        if (!response.ok) throw new Error(response.status === 401 ? "API Token 无效" : `加载设备失败 (${response.status})`);
+        const response = await fetch("/console/v1/devices", { headers: authorizationHeaders() });
+        if (!response.ok) throw new Error(`加载设备失败 (${response.status})`);
         const data = await response.json();
-        sessionStorage.setItem("voice_api_token", token);
         renderDevices(Array.isArray(data.devices) ? data.devices : []);
         setServiceStatus("ok", `${onlineDevices.length} 台设备在线`);
       } catch (error) {
@@ -231,7 +221,7 @@
       const payload = { text };
       if (elements.voice.value.trim()) payload.voice = elements.voice.value.trim();
       try {
-        const response = await fetch(`/v1/devices/${encodeURIComponent(deviceID)}/speak`, {
+        const response = await fetch(`/console/v1/devices/${encodeURIComponent(deviceID)}/speak`, {
           method: "POST",
           headers: authorizationHeaders(true),
           body: JSON.stringify(payload)
@@ -256,14 +246,13 @@
     elements.refresh.addEventListener("click", () => loadDevices());
     elements.deviceSelect.addEventListener("change", updateSendState);
     elements.text.addEventListener("input", updateSendState);
-    elements.token.addEventListener("input", updateSendState);
     elements.form.addEventListener("submit", sendMessage);
     elements.clearHistory.addEventListener("click", () => {
       elements.history.innerHTML = '<div class="empty">暂无发送记录</div>';
     });
     updateSendState();
-    if (elements.token.value) loadDevices(true);
-    setInterval(() => { if (elements.token.value) loadDevices(true); }, 5000);
+    loadDevices(true);
+    setInterval(() => { loadDevices(true); }, 5000);
   </script>
 </body>
 </html>
