@@ -76,3 +76,33 @@ func TestConsoleNavigationAndNoCredentialInputs(t *testing.T) {
 		}
 	}
 }
+
+func TestConsoleRecordsNeedNoTokenWhileExternalAPIStillDoes(t *testing.T) {
+	store := testRecordStore(t)
+	mux := http.NewServeMux()
+	mux.Handle("/v1/voice/records", store)
+	mux.Handle("/v1/voice/records/", store)
+	mux.Handle("/console/", consoleAPI(mux, Config{Voice: VoiceConfig{APIToken: "test-token"}}))
+	for _, test := range []struct {
+		path   string
+		status int
+	}{
+		{"/console/v1/voice/records", 200},
+		{"/console/v1/voice/records/settings", 200},
+		{"/v1/voice/records", 401},
+		{"/v1/voice/records/settings", 401},
+	} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", test.path, nil))
+		if w.Code != test.status {
+			t.Errorf("%s: status %d, want %d", test.path, w.Code, test.status)
+		}
+	}
+	r := httptest.NewRequest("PUT", "http://console.test/console/v1/voice/records/settings", strings.NewReader(`{"retention_days":7}`))
+	r.Header.Set("Origin", "http://console.test")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 || store.retentionDays != 7 {
+		t.Fatalf("console setting without token: %d %s", w.Code, w.Body.String())
+	}
+}

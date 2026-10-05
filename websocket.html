@@ -60,7 +60,7 @@
             </div>
             <label class="field">消息内容<textarea id="message-text" rows="6" maxlength="1000" placeholder="输入要发送到设备的文本" required></textarea></label>
             <div class="endpoint-preview">
-              <span class="method">POST</span><code id="speak-endpoint">/v1/devices/{device_id}/speak</code>
+              <span class="method">POST</span><code id="speak-endpoint">/console/v1/devices/{device_id}/speak</code>
             </div>
             <div class="form-actions"><span class="muted" id="character-count">0 / 1000</span><button class="button primary" id="send-message" type="submit" disabled>发送消息</button></div>
           </form>
@@ -120,7 +120,7 @@
 
     function updateEndpoint() {
       const deviceID = elements.deviceSelect.value || "{device_id}";
-      elements.endpoint.textContent = `${location.origin}/v1/devices/${deviceID}/speak`;
+      elements.endpoint.textContent = `${location.origin}/console/v1/devices/${deviceID}/speak`;
     }
 
     function updateSendState() {

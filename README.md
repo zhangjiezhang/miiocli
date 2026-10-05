@@ -149,6 +149,21 @@ Record API endpoints for external callers (Bearer authentication):
 - `PUT /v1/voice/records/settings`: JSON `{"retention_days":5}`; shortening retention
   permanently removes expired records.
 
+Console and board routes are separate:
+
+| Purpose | Path | Authentication |
+| --- | --- | --- |
+| Firmware management | `/console/v1/ota/releases` and subpaths | No administrator token required from the caller |
+| Web App management | `/console/v1/web/releases`, `/console/v1/web/current` | No administrator token required from the caller |
+| Device list and speech delivery | `/console/v1/devices`, `/console/v1/devices/<id>/speak` | No API token required from the caller |
+| Conversation records and retention | `/console/v1/voice/records` and subpaths | No API token required from the caller |
+| Board WebSocket | `/v1/device/ws` | Device ID/token in hello |
+| Board firmware check | `/v1/ota/check` | Device Bearer token and `X-Device-ID` |
+| Board firmware download | `/v1/ota/firmware/<id>.bin` | Device Bearer token and `X-Device-ID` |
+
+The console router does not expose board authentication/check/download paths.
+Existing authenticated `/v1/...` management APIs remain available for scripts and integrations.
+
 **Aliyun TTS API**
 --
 Send a protected request to start a stream on an online device. The server uses Alibaba Cloud NLS streaming synthesis with native 16 kHz PCM output and forwards it to the device as `pcm_s16le` frames.
