@@ -54,11 +54,9 @@ Config example:
         timeoutSeconds: 600
     ota:
       directory: ./releases
-      adminToken: replace-with-an-ota-admin-secret
     webApp:
       directory: ./web-releases
       publishDirectory: ./ipad-show
-      adminToken: replace-with-a-web-app-admin-secret
     mis:
       - name: plug-living-room
         alias: 客厅插座
@@ -135,7 +133,8 @@ directory is `/app/voice-records` inside the existing `/app` volume. Records def
 removed at startup, hourly, on queries and immediately after a retention change.
 
 Management pages load automatically without administrator/API token inputs. The console uses
-`/console/v1/...` routes with server-side credentials, never embedded in HTML or browser storage.
+`/console/v1/...` routes without caller authentication. OTA/Web App need no token configuration;
+voice-only server credentials are never embedded in HTML or browser storage.
 Console routes allow only management endpoints and reject cross-origin browser requests;
 mutations require same-origin browser metadata. Access to the console grants management access.
 The original `/v1/...` external and device APIs retain Bearer authentication.
@@ -162,7 +161,7 @@ Console and board routes are separate:
 | Board firmware download | `/v1/ota/firmware/<id>.bin` | Device Bearer token and `X-Device-ID` |
 
 The console router does not expose board authentication/check/download paths.
-Existing authenticated `/v1/...` management APIs remain available for scripts and integrations.
+Scripts use the same `/console/v1/...` management paths. OTA and Web App management are not registered under `/v1/...`; voice integration APIs remain authenticated there.
 
 **Aliyun TTS API**
 --
@@ -190,7 +189,7 @@ The authoritative voice list is the list shown in the NLS console after login; i
 
 **OTA service**
 --
-Open `http://<server>:8080/ota` to upload and manage ESP32 firmware releases. The admin page and release APIs use `ota.adminToken`; ESP32 check and download requests use the device ID and token configured under `voice.devices`.
+Open `http://<server>:8080/ota` to upload and manage ESP32 firmware releases. OTA management does not require an administrator token. ESP32 check and download requests use the device ID and token configured under `voice.devices`.
 
 Device endpoints:
 
@@ -199,10 +198,10 @@ Device endpoints:
 
 Admin endpoints:
 
-- `GET /v1/ota/releases`
-- `POST /v1/ota/releases` as multipart form data with `firmware`, `version`, `channel`, `mandatory`, and `notes`.
-- `PUT /v1/ota/releases/<release-id>` marks that release as the sole pending-update version.
-- `DELETE /v1/ota/releases/<release-id>`
+- `GET /console/v1/ota/releases`
+- `POST /console/v1/ota/releases` as multipart form data with `firmware`, `version`, `channel`, `mandatory`, and `notes`.
+- `PUT /console/v1/ota/releases/<release-id>` marks that release as the sole pending-update version.
+- `DELETE /console/v1/ota/releases/<release-id>`
 
 The uploaded version must match the ESP-IDF application version embedded in the `.bin`. Set the firmware version in the project root `version.txt` before building and uploading. A new upload is marked pending update automatically and clears the marker from every other release. `/static` exposes it as `data.firmware_version` so devices can trigger an OTA check whenever their local version differs.
 The service retains the three most recently uploaded releases. Older release records and firmware files are removed automatically after an upload and when the service starts.
@@ -211,13 +210,12 @@ Before the first OTA release, flash the ESP32 once over USB with the new partiti
 
 **Web App release service**
 --
-Set `webApp.adminToken` to enable the service, then open `http://<server>:8080/webapp`. If `webApp` is omitted, all Web App routes remain disabled and the original service behavior is unchanged.
+Open `http://<server>:8080/webapp`. The service initializes without an administrator token, using default storage paths when the `webApp` configuration is omitted.
 
 Configuration:
 
 - `webApp.directory` stores uploaded ZIP files and `index.json`. Keep this directory on persistent storage.
 - `webApp.publishDirectory` is the directory replaced when a version is activated. It must be separate from `webApp.directory`.
-- `webApp.adminToken` protects upload, listing, deletion, and activation operations.
 
 Build the PWA, then compress the **contents** of `dist` so that `index.html` is at the ZIP root:
 
@@ -231,17 +229,17 @@ The ZIP root must contain `index.html`, `version.json`, `manifest.webmanifest`, 
 
 The release service uses two API resource paths:
 
-- `GET /v1/web/releases` lists uploaded builds. Requires `Authorization: Bearer <web-app-admin-token>`.
-- `POST /v1/web/releases` uploads multipart fields `artifact`, `version`, `control_version`, and optional `notes`. Requires the admin token.
-- `DELETE /v1/web/releases/<release-id>` deletes a non-active build and its ZIP. Requires the admin token; the current release cannot be deleted.
-- `GET /v1/web/current` publicly returns the active page version, positive integer control version, activation time, and `/ipad-show/` URL. It returns `{"current":null}` before the first activation.
-- `PUT /v1/web/current` activates `{"release_id":"<id>"}`. Requires the admin token.
+- `GET /console/v1/web/releases` lists uploaded builds.
+- `POST /console/v1/web/releases` uploads multipart fields `artifact`, `version`, `control_version`, and optional `notes`.
+- `DELETE /console/v1/web/releases/<release-id>` deletes a non-active build and its ZIP. The the current release cannot be deleted.
+- `GET /console/v1/web/current` publicly returns the active page version, positive integer control version, activation time, and `/ipad-show/` URL. It returns `{"current":null}` before the first activation.
+- `PUT /console/v1/web/current` activates `{"release_id":"<id>"}`.
 
 Upload example:
 
 ```bash
-curl -X POST http://<server>:8080/v1/web/releases \
-  -H "Authorization: Bearer replace-with-a-web-app-admin-secret" \
+curl -X POST http://<server>:8080/console/v1/web/releases \
+  -H "Origin: http://<server>:8080" \
   -F "artifact=@ipad-show-1.0.0.zip;type=application/zip" \
   -F "version=1.0.0" \
   -F "control_version=1" \
@@ -251,8 +249,8 @@ curl -X POST http://<server>:8080/v1/web/releases \
 Activation example:
 
 ```bash
-curl -X PUT http://<server>:8080/v1/web/current \
-  -H "Authorization: Bearer replace-with-a-web-app-admin-secret" \
+curl -X PUT http://<server>:8080/console/v1/web/current \
+  -H "Origin: http://<server>:8080" \
   -H "Content-Type: application/json" \
   -d '{"release_id":"<id>"}'
 ```

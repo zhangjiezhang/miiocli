@@ -207,6 +207,7 @@ func main() {
 		}
 	}()
 
+	consoleMux := http.NewServeMux()
 	http.Handle("/metrics", http.HandlerFunc(metrics))
 	http.Handle("/static", http.HandlerFunc(static))
 	http.Handle("/app.css", http.HandlerFunc(appStyles))
@@ -217,28 +218,32 @@ func main() {
 	if recordStore != nil {
 		http.Handle("/v1/voice/records", recordStore)
 		http.Handle("/v1/voice/records/", recordStore)
+		consoleMux.Handle("/v1/voice/records", recordStore)
+		consoleMux.Handle("/v1/voice/records/", recordStore)
 	}
 	http.Handle(voiceHub.Path(), voiceHub)
 	if otaService != nil {
 		http.Handle("/ota", http.HandlerFunc(otaPage))
 		http.Handle("/v1/ota/check", http.HandlerFunc(otaService.HandleCheck))
 		http.Handle("/v1/ota/firmware/", http.HandlerFunc(otaService.HandleFirmware))
-		http.Handle("/v1/ota/releases", http.HandlerFunc(otaService.HandleReleases))
-		http.Handle("/v1/ota/releases/", http.HandlerFunc(otaService.HandleRelease))
+		consoleMux.Handle("/v1/ota/releases", http.HandlerFunc(otaService.HandleReleases))
+		consoleMux.Handle("/v1/ota/releases/", http.HandlerFunc(otaService.HandleRelease))
 	}
 	if webService != nil {
 		http.Handle("/webapp", http.HandlerFunc(webAppPage))
-		http.Handle("/v1/web/releases", http.HandlerFunc(webService.HandleReleases))
-		http.Handle("/v1/web/releases/", http.HandlerFunc(webService.HandleRelease))
-		http.Handle("/v1/web/current", http.HandlerFunc(webService.HandleCurrent))
+		consoleMux.Handle("/v1/web/releases", http.HandlerFunc(webService.HandleReleases))
+		consoleMux.Handle("/v1/web/releases/", http.HandlerFunc(webService.HandleRelease))
+		consoleMux.Handle("/v1/web/current", http.HandlerFunc(webService.HandleCurrent))
 		http.Handle("/ipad-show", http.HandlerFunc(webService.HandleApp))
 		http.Handle("/ipad-show/", http.HandlerFunc(webService.HandleApp))
 	}
 	if ttsService != nil {
 		http.Handle("/v1/devices", http.HandlerFunc(ttsService.HandleDevices))
 		http.Handle("/v1/devices/", ttsService)
+		consoleMux.Handle("/v1/devices", http.HandlerFunc(ttsService.HandleDevices))
+		consoleMux.Handle("/v1/devices/", ttsService)
 	}
-	http.Handle("/console/", consoleAPI(http.DefaultServeMux, config))
+	http.Handle("/console/", consoleAPI(consoleMux, config))
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Printf("Listen Port Fail: %s", err)

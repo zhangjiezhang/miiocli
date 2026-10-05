@@ -30,8 +30,7 @@ const (
 var safeReleasePart = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
 type OTAConfig struct {
-	Directory  string `yaml:"directory"`
-	AdminToken string `yaml:"adminToken"`
+	Directory string `yaml:"directory"`
 }
 
 type OTARelease struct {
@@ -59,9 +58,6 @@ type OTAService struct {
 }
 
 func NewOTAService(cfg OTAConfig, devices map[string]VoiceDeviceConfig) (*OTAService, error) {
-	if cfg.AdminToken == "" {
-		return nil, errors.New("ota.adminToken is required")
-	}
 	if cfg.Directory == "" {
 		cfg.Directory = defaultOTADirectory
 	}
@@ -151,10 +147,6 @@ func (s *OTAService) HandleFirmware(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *OTAService) HandleReleases(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
 		s.mu.RLock()
@@ -170,10 +162,6 @@ func (s *OTAService) HandleReleases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *OTAService) HandleRelease(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	id := strings.TrimPrefix(r.URL.Path, "/v1/ota/releases/")
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
@@ -338,10 +326,6 @@ func (s *OTAService) authorizeDevice(r *http.Request) bool {
 	deviceID := r.Header.Get("X-Device-ID")
 	device, ok := s.devices[deviceID]
 	return ok && secureBearer(r, device.Token)
-}
-
-func (s *OTAService) authorizeAdmin(r *http.Request) bool {
-	return secureBearer(r, s.cfg.AdminToken)
 }
 
 func secureBearer(r *http.Request, expected string) bool {

@@ -16,7 +16,7 @@ import (
 )
 
 func TestOTAReleaseLifecycle(t *testing.T) {
-	service, err := NewOTAService(OTAConfig{Directory: t.TempDir(), AdminToken: "admin-secret"},
+	service, err := NewOTAService(OTAConfig{Directory: t.TempDir()},
 		map[string]VoiceDeviceConfig{"szp-001": {Token: "device-secret"}})
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,6 @@ func TestOTAReleaseLifecycle(t *testing.T) {
 	}
 
 	deleteRequest := httptest.NewRequest(http.MethodDelete, "/v1/ota/releases/"+release.ID, nil)
-	deleteRequest.Header.Set("Authorization", "Bearer admin-secret")
 	deleteRecorder := httptest.NewRecorder()
 	service.HandleRelease(deleteRecorder, deleteRequest)
 	if deleteRecorder.Code != http.StatusNoContent {
@@ -71,7 +70,7 @@ func TestOTAReleaseLifecycle(t *testing.T) {
 }
 
 func TestOTAPendingUpdateCanBeChangedAndSupportsRollback(t *testing.T) {
-	service, err := NewOTAService(OTAConfig{Directory: t.TempDir(), AdminToken: "admin-secret"},
+	service, err := NewOTAService(OTAConfig{Directory: t.TempDir()},
 		map[string]VoiceDeviceConfig{"szp-001": {Token: "device-secret"}})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +87,6 @@ func TestOTAPendingUpdateCanBeChangedAndSupportsRollback(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodPut, "/v1/ota/releases/"+first.ID, nil)
-	request.Header.Set("Authorization", "Bearer admin-secret")
 	recorder := httptest.NewRecorder()
 	service.HandleRelease(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -128,7 +126,7 @@ func TestStaticResponseIncludesPendingFirmwareVersion(t *testing.T) {
 		config = previousConfig
 	})
 
-	service, err := NewOTAService(OTAConfig{Directory: t.TempDir(), AdminToken: "admin-secret"}, nil)
+	service, err := NewOTAService(OTAConfig{Directory: t.TempDir()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +147,7 @@ func TestStaticResponseIncludesPendingFirmwareVersion(t *testing.T) {
 }
 
 func TestOTAAuthorization(t *testing.T) {
-	service, err := NewOTAService(OTAConfig{Directory: t.TempDir(), AdminToken: "admin-secret"},
+	service, err := NewOTAService(OTAConfig{Directory: t.TempDir()},
 		map[string]VoiceDeviceConfig{"szp-001": {Token: "device-secret"}})
 	if err != nil {
 		t.Fatal(err)
@@ -164,12 +162,11 @@ func TestOTAAuthorization(t *testing.T) {
 	adminRequest := httptest.NewRequest(http.MethodGet, "/v1/ota/releases", nil)
 	adminRecorder := httptest.NewRecorder()
 	service.HandleReleases(adminRecorder, adminRequest)
-	if adminRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated admin request returned %d", adminRecorder.Code)
+	if adminRecorder.Code != http.StatusOK {
+		t.Fatalf("token-free management request returned %d", adminRecorder.Code)
 	}
 
 	authorized := httptest.NewRequest(http.MethodGet, "/v1/ota/releases", nil)
-	authorized.Header.Set("Authorization", "Bearer admin-secret")
 	authorizedRecorder := httptest.NewRecorder()
 	service.HandleReleases(authorizedRecorder, authorized)
 	if authorizedRecorder.Code != http.StatusOK || authorizedRecorder.Body.String() != "{\"releases\":[]}\n" {
@@ -179,7 +176,7 @@ func TestOTAAuthorization(t *testing.T) {
 
 func TestOTAReleasesKeepLatestThree(t *testing.T) {
 	directory := t.TempDir()
-	service, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	service, err := NewOTAService(OTAConfig{Directory: directory}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +196,7 @@ func TestOTAReleasesKeepLatestThree(t *testing.T) {
 		t.Fatalf("oldest firmware still exists: %v", err)
 	}
 
-	reloaded, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	reloaded, err := NewOTAService(OTAConfig{Directory: directory}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +210,7 @@ func TestOTAReleasesKeepLatestThree(t *testing.T) {
 
 func TestOTAStartupPrunesExistingReleases(t *testing.T) {
 	directory := t.TempDir()
-	service, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	service, err := NewOTAService(OTAConfig{Directory: directory}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +234,7 @@ func TestOTAStartupPrunesExistingReleases(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reloaded, err := NewOTAService(OTAConfig{Directory: directory, AdminToken: "admin-secret"}, nil)
+	reloaded, err := NewOTAService(OTAConfig{Directory: directory}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +291,6 @@ func uploadTestFirmware(t *testing.T, service *OTAService, version string) OTARe
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/ota/releases", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
-	request.Header.Set("Authorization", "Bearer admin-secret")
 	recorder := httptest.NewRecorder()
 	service.HandleReleases(recorder, request)
 	if recorder.Code != http.StatusCreated {

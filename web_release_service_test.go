@@ -64,7 +64,7 @@ func TestWebReleaseUploadActivateAndServe(t *testing.T) {
 	}
 
 	reloaded, err := NewWebReleaseService(WebReleaseConfig{
-		Directory: filepath.Join(root, "releases"), PublishDirectory: filepath.Join(root, "current"), AdminToken: "admin-secret",
+		Directory: filepath.Join(root, "releases"), PublishDirectory: filepath.Join(root, "current"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -74,15 +74,14 @@ func TestWebReleaseUploadActivateAndServe(t *testing.T) {
 	}
 }
 
-func TestWebReleaseAuthorizationAndDuplicateControlVersion(t *testing.T) {
+func TestWebReleaseWithoutAdminTokenAndDuplicateControlVersion(t *testing.T) {
 	service := newTestWebReleaseService(t, t.TempDir())
 	response := httptest.NewRecorder()
 	service.HandleReleases(response, httptest.NewRequest(http.MethodGet, "/v1/web/releases", nil))
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated list returned %d", response.Code)
+	if response.Code != http.StatusOK {
+		t.Fatalf("token-free list returned %d", response.Code)
 	}
 	authorized := httptest.NewRequest(http.MethodGet, "/v1/web/releases", nil)
-	authorized.Header.Set("Authorization", "Bearer admin-secret")
 	response = httptest.NewRecorder()
 	service.HandleReleases(response, authorized)
 	if response.Code != http.StatusOK || response.Body.String() != "{\"releases\":[]}\n" {
@@ -93,7 +92,6 @@ func TestWebReleaseAuthorizationAndDuplicateControlVersion(t *testing.T) {
 	body, contentType := testWebUploadBody(t, "1.0.1", 7, nil)
 	request := httptest.NewRequest(http.MethodPost, "/v1/web/releases", body)
 	request.Header.Set("Content-Type", contentType)
-	request.Header.Set("Authorization", "Bearer admin-secret")
 	response = httptest.NewRecorder()
 	service.HandleReleases(response, request)
 	if response.Code != http.StatusConflict {
@@ -104,8 +102,8 @@ func TestWebReleaseAuthorizationAndDuplicateControlVersion(t *testing.T) {
 	activate.Header.Set("Content-Type", "application/json")
 	response = httptest.NewRecorder()
 	service.HandleCurrent(response, activate)
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated activation returned %d", response.Code)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing release activation returned %d", response.Code)
 	}
 }
 
@@ -116,15 +114,8 @@ func TestWebReleaseDeleteRejectsCurrentAndRemovesArtifact(t *testing.T) {
 	activateTestWebRelease(t, service, current.ID)
 	obsolete := uploadTestWebArtifact(t, service, "1.0.1", 2, nil)
 
-	unauthorized := httptest.NewRequest(http.MethodDelete, "/v1/web/releases/"+obsolete.ID, nil)
 	response := httptest.NewRecorder()
-	service.HandleRelease(response, unauthorized)
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized delete returned %d", response.Code)
-	}
-
 	deleteCurrent := httptest.NewRequest(http.MethodDelete, "/v1/web/releases/"+current.ID, nil)
-	deleteCurrent.Header.Set("Authorization", "Bearer admin-secret")
 	response = httptest.NewRecorder()
 	service.HandleRelease(response, deleteCurrent)
 	if response.Code != http.StatusConflict {
@@ -133,7 +124,6 @@ func TestWebReleaseDeleteRejectsCurrentAndRemovesArtifact(t *testing.T) {
 
 	artifactPath := filepath.Join(service.cfg.Directory, obsolete.ID+".zip")
 	deleteObsolete := httptest.NewRequest(http.MethodDelete, "/v1/web/releases/"+obsolete.ID, nil)
-	deleteObsolete.Header.Set("Authorization", "Bearer admin-secret")
 	response = httptest.NewRecorder()
 	service.HandleRelease(response, deleteObsolete)
 	if response.Code != http.StatusNoContent {
@@ -197,7 +187,7 @@ func TestWebReleaseRetentionKeepsCurrentAndLatestFive(t *testing.T) {
 	service.mu.Unlock()
 
 	reloaded, err := NewWebReleaseService(WebReleaseConfig{
-		Directory: service.cfg.Directory, PublishDirectory: service.cfg.PublishDirectory, AdminToken: "admin-secret",
+		Directory: service.cfg.Directory, PublishDirectory: service.cfg.PublishDirectory,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +205,7 @@ func TestWebReleaseRetentionKeepsCurrentAndLatestFive(t *testing.T) {
 func TestWebReleaseDirectoriesMustBeSeparate(t *testing.T) {
 	root := t.TempDir()
 	_, err := NewWebReleaseService(WebReleaseConfig{
-		Directory: root, PublishDirectory: filepath.Join(root, "current"), AdminToken: "admin-secret",
+		Directory: root, PublishDirectory: filepath.Join(root, "current"),
 	})
 	if err == nil || !strings.Contains(err.Error(), "separate directories") {
 		t.Fatalf("overlapping directories returned %v", err)
@@ -238,7 +228,6 @@ func TestWebReleaseRejectsUnsafeAndMismatchedArchives(t *testing.T) {
 			body, contentType := testWebUploadBodyWithFiles(t, test.version, 10, test.files)
 			request := httptest.NewRequest(http.MethodPost, "/v1/web/releases", body)
 			request.Header.Set("Content-Type", contentType)
-			request.Header.Set("Authorization", "Bearer admin-secret")
 			response := httptest.NewRecorder()
 			service.HandleReleases(response, request)
 			if response.Code != http.StatusBadRequest {
@@ -259,7 +248,6 @@ func TestWebReleaseFailedActivationKeepsPublishedVersion(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodPut, "/v1/web/current", strings.NewReader(`{"release_id":"`+second.ID+`"}`))
-	request.Header.Set("Authorization", "Bearer admin-secret")
 	response := httptest.NewRecorder()
 	service.HandleCurrent(response, request)
 	if response.Code != http.StatusInternalServerError {
@@ -274,7 +262,7 @@ func TestWebReleaseFailedActivationKeepsPublishedVersion(t *testing.T) {
 func newTestWebReleaseService(t *testing.T, root string) *WebReleaseService {
 	t.Helper()
 	service, err := NewWebReleaseService(WebReleaseConfig{
-		Directory: filepath.Join(root, "releases"), PublishDirectory: filepath.Join(root, "current"), AdminToken: "admin-secret",
+		Directory: filepath.Join(root, "releases"), PublishDirectory: filepath.Join(root, "current"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +275,6 @@ func uploadTestWebArtifact(t *testing.T, service *WebReleaseService, version str
 	body, contentType := testWebUploadBody(t, version, controlVersion, extra)
 	request := httptest.NewRequest(http.MethodPost, "/v1/web/releases", body)
 	request.Header.Set("Content-Type", contentType)
-	request.Header.Set("Authorization", "Bearer admin-secret")
 	response := httptest.NewRecorder()
 	service.HandleReleases(response, request)
 	if response.Code != http.StatusCreated {
@@ -357,7 +344,6 @@ func activateTestWebRelease(t *testing.T, service *WebReleaseService, releaseID 
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPut, "/v1/web/current", strings.NewReader(`{"release_id":"`+releaseID+`"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer admin-secret")
 	response := httptest.NewRecorder()
 	service.HandleCurrent(response, request)
 	if response.Code != http.StatusOK {

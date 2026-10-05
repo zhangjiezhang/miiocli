@@ -28,26 +28,31 @@ func consoleAPI(mux http.Handler, cfg Config) http.Handler {
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/console")
 		var token string
+		needsVoiceToken := false
 		switch {
 		case path == "/v1/ota/releases" || strings.HasPrefix(path, "/v1/ota/releases/"):
-			token = cfg.OTA.AdminToken
+			// OTA management no longer requires administrator credentials.
 		case path == "/v1/web/current" || path == "/v1/web/releases" || strings.HasPrefix(path, "/v1/web/releases/"):
-			token = cfg.WebApp.AdminToken
+			// Web App management no longer requires administrator credentials.
 		case path == "/v1/devices" || (strings.HasPrefix(path, "/v1/devices/") && strings.HasSuffix(path, "/speak")),
 			path == "/v1/voice/records" || strings.HasPrefix(path, "/v1/voice/records/"):
 			token = cfg.Voice.APIToken
+			needsVoiceToken = true
 		default:
 			http.NotFound(w, r)
 			return
 		}
-		if token == "" {
+		if needsVoiceToken && token == "" {
 			http.Error(w, "service not configured", http.StatusServiceUnavailable)
 			return
 		}
 		request := r.Clone(r.Context())
 		request.URL.Path = path
 		request.URL.RawPath = ""
-		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Del("Authorization")
+		if needsVoiceToken {
+			request.Header.Set("Authorization", "Bearer "+token)
+		}
 		mux.ServeHTTP(w, request)
 	})
 }

@@ -40,7 +40,6 @@ var requiredWebFiles = map[string]struct{}{
 type WebReleaseConfig struct {
 	Directory        string `yaml:"directory"`
 	PublishDirectory string `yaml:"publishDirectory"`
-	AdminToken       string `yaml:"adminToken"`
 }
 
 type WebRelease struct {
@@ -75,9 +74,6 @@ type WebReleaseService struct {
 }
 
 func NewWebReleaseService(cfg WebReleaseConfig) (*WebReleaseService, error) {
-	if cfg.AdminToken == "" {
-		return nil, errors.New("webApp.adminToken is required")
-	}
 	if cfg.Directory == "" {
 		cfg.Directory = defaultWebReleaseDirectory
 	}
@@ -122,10 +118,6 @@ func NewWebReleaseService(cfg WebReleaseConfig) (*WebReleaseService, error) {
 // HandleReleases exposes the first resource path: GET lists uploaded builds and
 // POST stores a validated ZIP artifact. Both operations are administrative.
 func (s *WebReleaseService) HandleReleases(w http.ResponseWriter, r *http.Request) {
-	if !secureBearer(r, s.cfg.AdminToken) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
 		s.mu.RLock()
@@ -141,10 +133,6 @@ func (s *WebReleaseService) HandleReleases(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *WebReleaseService) HandleRelease(w http.ResponseWriter, r *http.Request) {
-	if !secureBearer(r, s.cfg.AdminToken) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	if r.Method != http.MethodDelete {
 		methodNotAllowed(w, http.MethodDelete)
 		return
@@ -201,10 +189,6 @@ func (s *WebReleaseService) HandleCurrent(w http.ResponseWriter, r *http.Request
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, map[string]any{"current": current})
 	case http.MethodPut:
-		if !secureBearer(r, s.cfg.AdminToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
 		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 		var request struct {
 			ReleaseID string `json:"release_id"`
