@@ -1,5 +1,20 @@
 # Release notes
 
+## 1.0.6 — 2026-10-07
+
+- Show VAD and VP alongside ASR, Nanobot and TTS in the voice-record list's stage
+  timings column, matching the stages already available in record details.
+- Add VAD/VP average timing cards and API statistics over all matching records.
+  Include completed unknown-speaker VP results; exclude unexecuted, processing
+  and interrupted stages. Display missing legacy stages as a dash and preserve
+  valid zero-millisecond timings.
+- Serve the record page with `Cache-Control: no-store` to prevent stale UI caching.
+
+Validation: Go tests and race checks, `go vet`, Linux amd64/arm64 builds, and
+browser verification of the updated list and average cards using a local preview
+with records read from the deployed service. Added a regression test covering
+filtering, pagination, unknown-speaker results and completed-stage averages.
+
 ## 1.0.5 — 2026-10-07
 
 - Remove the local ASR token requirement. Both `local` and the local leg of `auto`

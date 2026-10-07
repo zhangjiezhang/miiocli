@@ -30,7 +30,9 @@
       <p id="message" role="status" class="muted">正在加载记录。</p>
       <div class="metrics" id="stats" hidden>
         <div class="metric"><div class="metric-label">匹配记录 / 成功 / 失败</div><div class="metric-value" id="counts">--</div></div>
+        <div class="metric"><div class="metric-label">VAD 平均耗时</div><div class="metric-value" id="vad-ms">--</div></div>
         <div class="metric"><div class="metric-label">ASR 平均耗时</div><div class="metric-value" id="asr-ms">--</div></div>
+        <div class="metric"><div class="metric-label">VP 平均耗时</div><div class="metric-value" id="vp-ms">--</div></div>
         <div class="metric"><div class="metric-label">Nanobot 平均耗时</div><div class="metric-value" id="nanobot-ms">--</div></div>
         <div class="metric"><div class="metric-label">TTS 平均耗时</div><div class="metric-value" id="tts-ms">--</div></div>
       </div>
@@ -42,6 +44,7 @@
   <script>
     const $=id=>document.getElementById(id); let page=1, total=0;
     const labels={ignored:'无语音',unknown:'未知说话人',success:'成功',error:'失败',processing:'处理中',interrupted:'已中断'};
+    const timingStages=[['vad','VAD'],['asr','ASR'],['vp','VP'],['nanobot','Nanobot'],['tts','TTS']];
     const duration=value=>`${value ?? 0} ms`;
     function report(error){ $('message').textContent=error.message; $('message').className='error-text'; }
     async function api(path,options={}){
@@ -56,7 +59,7 @@
       const data=await api('/console/v1/voice/records?'+parameters); total=data.total;
       $('days').value=data.retention_days; $('stats').hidden=false;
       $('counts').textContent=`${total} / ${data.stats.success} / ${data.stats.errors}`;
-      for(const stage of ['asr','nanobot','tts']) $(stage+'-ms').textContent=duration(data.stats[stage+'_ms']);
+      for(const [stage] of timingStages) $(stage+'-ms').textContent=duration(data.stats[stage+'_ms']);
       $('rows').replaceChildren();
       for(const record of data.records){
         const row=document.createElement('tr');
@@ -64,7 +67,7 @@
         cell(row,labels[record.status]||record.status);
         cell(row,(record.speaker?.matched ? (record.speaker.name||record.speaker.id)+'：' : '')+(record.asr.output||record.tts.input||'—'));
         cell(row,record.nanobot.output||record.tts.input||'—');
-        cell(row,`ASR: ${record.asr.status?duration(record.asr.duration_ms):'—'}\nNanobot: ${record.nanobot.status?duration(record.nanobot.duration_ms):'—'}\nTTS: ${record.tts.status?duration(record.tts.duration_ms):'—'}`);
+        cell(row,timingStages.map(([key,label])=>`${label}: ${record[key]?.status?duration(record[key].duration_ms):'—'}`).join('\n'));
         const button=document.createElement('button'); button.className='button'; button.textContent='详情'; button.onclick=()=>show(record.id).catch(report);
         cell(row,'').append(button); $('rows').append(row);
       }

@@ -244,6 +244,7 @@ func voiceRecordsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	io.WriteString(w, voiceRecordsHTML)
 }
 
@@ -342,8 +343,8 @@ func (s *VoiceRecordStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	filtered := make([]VoiceRecord, 0)
 	keyword := strings.ToLower(q.Get("q"))
-	var asrMS, agentMS, ttsMS int64
-	var asrN, agentN, ttsN, successN, errorN int
+	var vadMS, asrMS, vpMS, agentMS, ttsMS int64
+	var vadN, asrN, vpN, agentN, ttsN, successN, errorN int
 	for _, row := range rows {
 		if q.Get("device") != "" && row.DeviceID != q.Get("device") {
 			continue
@@ -358,6 +359,14 @@ func (s *VoiceRecordStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		filtered = append(filtered, row)
+		if row.VAD.Status == "success" || row.VAD.Status == "error" {
+			vadMS += row.VAD.DurationMS
+			vadN++
+		}
+		if row.VP.Status == "success" || row.VP.Status == "unknown" || row.VP.Status == "error" {
+			vpMS += row.VP.DurationMS
+			vpN++
+		}
 		if row.ASR.Status == "success" || row.ASR.Status == "error" {
 			asrMS += row.ASR.DurationMS
 			asrN++
@@ -401,5 +410,5 @@ func (s *VoiceRecordStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return sum / int64(n)
 	}
 	writeJSON(w, 200, map[string]any{"records": items, "total": len(filtered), "page": page, "limit": limit, "retention_days": s.retentionDays,
-		"stats": map[string]any{"success": successN, "errors": errorN, "asr_ms": mean(asrMS, asrN), "nanobot_ms": mean(agentMS, agentN), "tts_ms": mean(ttsMS, ttsN)}})
+		"stats": map[string]any{"success": successN, "errors": errorN, "vad_ms": mean(vadMS, vadN), "asr_ms": mean(asrMS, asrN), "vp_ms": mean(vpMS, vpN), "nanobot_ms": mean(agentMS, agentN), "tts_ms": mean(ttsMS, ttsN)}})
 }

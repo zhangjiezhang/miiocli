@@ -203,3 +203,44 @@ func TestVoiceRecordsRedactionAndCorruptionIsolation(t *testing.T) {
 		t.Fatalf("corruption/redaction: %s", w.Body.String())
 	}
 }
+
+func TestVoiceRecordsVADVPCompletedAverages(t *testing.T) {
+	store := testRecordStore(t)
+	for _, seed := range []struct {
+		device, vadStatus, vpStatus string
+		vadMS, vpMS                 int64
+	}{
+		{"esp32", "success", "success", 0, 100},
+		{"esp32", "success", "unknown", 2, 200},
+		{"esp32", "error", "error", 4, 300},
+		{"esp32", "processing", "processing", 9999, 9999},
+		{"esp32", "interrupted", "interrupted", 9999, 9999},
+		{"esp32", "", "", 0, 0}, // Legacy/disabled stages must not dilute averages.
+		{"other", "success", "success", 9000, 9000},
+	} {
+		row := newVoiceRecord(seed.device, "task", "voice")
+		row.VAD = VoiceStage{Status: seed.vadStatus, DurationMS: seed.vadMS}
+		row.VP = VoiceStage{Status: seed.vpStatus, DurationMS: seed.vpMS}
+		if err := store.Save(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response := recordRequest(store, "GET", "/v1/voice/records?device=esp32&limit=1", "", "test-token")
+	var result struct {
+		Total   int           `json:"total"`
+		Records []VoiceRecord `json:"records"`
+		Stats   struct {
+			VADMS int64 `json:"vad_ms"`
+			VPMS  int64 `json:"vp_ms"`
+		} `json:"stats"`
+	}
+	if response.Code != 200 {
+		t.Fatal(response.Body.String())
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 6 || len(result.Records) != 1 || result.Stats.VADMS != 2 || result.Stats.VPMS != 200 {
+		t.Fatalf("incorrect filtered, unpaginated stage averages: %s", response.Body.String())
+	}
+}

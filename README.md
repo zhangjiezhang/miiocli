@@ -147,6 +147,9 @@ TTS duration measures synthesis and delivery to the device connection, not the c
 of audible playback. The record remains processing until asynchronous TTS completes.
 Incomplete operations are marked interrupted after a service restart. Average stage timings
 include completed successful/failed stages only and use all records matching the query.
+The list and average cards cover VAD, ASR, VP, Nanobot and TTS; unknown-speaker VP
+results count as completed stages. Unexecuted legacy stages display as a dash,
+while valid zero-millisecond timings display as `0 ms`.
 
 Keep the directory on persistent storage. The published image runs in `/app`, so the default
 directory is `/app/voice-records` inside the existing `/app` volume. Records default to 5 days;
