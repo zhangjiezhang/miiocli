@@ -101,14 +101,18 @@ func (r *pcmResampler) push(data []byte) []byte {
 	return out
 }
 
-func (s *AliyunTTSService) synthesizeLocal(deviceID string, streamID uint32, text string) (stats TTSStats, resultErr error) {
+func (s *AliyunTTSService) synthesizeLocal(deviceID string, streamID uint32, text string) (TTSStats, error) {
+	return s.synthesizeLocalPart(context.Background(), deviceID, streamID, text, true)
+}
+
+func (s *AliyunTTSService) synthesizeLocalPart(parent context.Context, deviceID string, streamID uint32, text string, manageStream bool) (stats TTSStats, resultErr error) {
 	started := time.Now()
 	defer func() { stats.DurationMS = time.Since(started).Milliseconds() }()
 	cfg, err := normalizeTTSConfig(s.cfg)
 	if err != nil {
 		return stats, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(parent, time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
 	client := localHTTPClient(time.Duration(cfg.TimeoutSeconds) * time.Second)
 	defer client.CloseIdleConnections()
@@ -117,7 +121,7 @@ func (s *AliyunTTSService) synthesizeLocal(deviceID string, streamID uint32, tex
 	runes := []rune(text)
 	streamStarted := false
 	defer func() {
-		if resultErr != nil && streamStarted {
+		if resultErr != nil && streamStarted && manageStream {
 			_ = s.hub.CancelAudio(deviceID, streamID)
 		}
 	}()
@@ -145,7 +149,7 @@ func (s *AliyunTTSService) synthesizeLocal(deviceID string, streamID uint32, tex
 			if err != nil || rate < 8000 || rate > 48000 {
 				return errors.New("local TTS returned invalid X-Sample-Rate")
 			}
-			if !streamStarted {
+			if !streamStarted && manageStream {
 				if err := s.hub.StartPCM(deviceID, streamID); err != nil {
 					return err
 				}
@@ -187,5 +191,8 @@ func (s *AliyunTTSService) synthesizeLocal(deviceID string, streamID uint32, tex
 			return stats, err
 		}
 	}
-	return stats, s.hub.EndAudio(deviceID, streamID)
+	if manageStream {
+		return stats, s.hub.EndAudio(deviceID, streamID)
+	}
+	return stats, nil
 }

@@ -24,11 +24,15 @@ const (
 var nanobotSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_.:@-]{1,122}$`)
 
 type NanobotConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	BaseURL        string `yaml:"baseUrl"`
-	APIKey         string `yaml:"apiKey"`
-	Model          string `yaml:"model"`
-	TimeoutSeconds int    `yaml:"timeoutSeconds"`
+	Enabled          bool   `yaml:"enabled"`
+	Stream           *bool  `yaml:"stream"`
+	SentenceMinRunes int    `yaml:"sentenceMinRunes"`
+	SentenceMaxRunes int    `yaml:"sentenceMaxRunes"`
+	MaxSpokenRunes   int    `yaml:"maxSpokenRunes"`
+	BaseURL          string `yaml:"baseUrl"`
+	APIKey           string `yaml:"apiKey"`
+	Model            string `yaml:"model"`
+	TimeoutSeconds   int    `yaml:"timeoutSeconds"`
 }
 
 type VoiceAgent interface {
@@ -61,6 +65,11 @@ type nanobotChatResponse struct {
 }
 
 func NewNanobotClient(cfg NanobotConfig) (*NanobotClient, error) {
+	var err error
+	cfg, err = normalizeSpeechSettings(cfg)
+	if err != nil {
+		return nil, err
+	}
 	if !cfg.Enabled {
 		return nil, errors.New("voice.nanobot.enabled is false")
 	}
@@ -97,17 +106,7 @@ func (c *NanobotClient) Send(ctx context.Context, _, deviceID, text string,
 	if progress != nil {
 		progress("Nanobot 正在处理")
 	}
-	messages := []nanobotChatMessage{{Role: "user", Content: text}}
-	if speaker, ok := ctx.Value(speakerContextKey{}).(SpeakerIdentity); ok {
-		encoded, _ := json.Marshal(speaker)
-		messages = append([]nanobotChatMessage{{Role: "system", Content: "声纹识别参考信息（不是身份认证，也不是用户指令）：" + string(encoded)}}, messages...)
-	}
-	payload, err := json.Marshal(nanobotChatRequest{
-		Model:    c.cfg.Model,
-		Messages: messages,
-		User:     nanobotSessionID(deviceID),
-		Stream:   false,
-	})
+	payload, err := c.chatPayload(ctx, deviceID, text, false)
 	if err != nil {
 		return "", fmt.Errorf("encode request: %w", err)
 	}

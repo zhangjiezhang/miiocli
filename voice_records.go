@@ -34,6 +34,7 @@ type VoiceStage struct {
 	DurationMS   int64  `json:"duration_ms"`
 	FirstAudioMS int64  `json:"first_audio_ms,omitempty"`
 	AudioBytes   int64  `json:"audio_bytes,omitempty"`
+	Segments     int    `json:"segments,omitempty"`
 }
 
 type VoiceRecord struct {

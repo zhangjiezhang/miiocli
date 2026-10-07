@@ -185,6 +185,10 @@ func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm 
 		ctx = context.WithValue(ctx, speakerContextKey{}, *record.Speaker)
 	}
 
+	if stream, ok := s.runner.(streamingVoiceAgent); ok && stream.StreamingEnabled() {
+		s.handleStreamingReply(ctx, deviceID, taskID, text, record, stream)
+		return
+	}
 	started = time.Now()
 	summary, err := s.runner.Send(ctx, taskID, deviceID, text, func(message string) {
 		s.sendState(deviceID, taskID, "working", message, text)
@@ -234,6 +238,7 @@ func completeTTSRecord(record *VoiceRecord, stats TTSStats, err error) {
 	record.TTS.DurationMS = stats.DurationMS
 	record.TTS.FirstAudioMS = stats.FirstAudioMS
 	record.TTS.AudioBytes = stats.AudioBytes
+	record.TTS.Segments = stats.Segments
 	record.TTS.Output = "PCM 16kHz mono signed 16-bit little-endian"
 	record.TTS.Status = "success"
 	status := "success"

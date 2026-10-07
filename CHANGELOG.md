@@ -1,5 +1,30 @@
 # Release notes
 
+## 1.0.7 — 2026-10-07
+
+- Stream Nanobot OpenAI-compatible SSE responses and segment text at sentence
+  punctuation, configured comma/colon boundaries and maximum sentence length.
+  Start TTS for the first sentence before the full LLM reply completes; flush
+  the remaining sentence at completion and exclude reasoning fields from speech.
+- Overlap LLM reception and ordered local/Alibaba Cloud synthesis through a
+  bounded queue. Keep one continuous 16 kHz PCM device stream across all segments
+  to avoid resetting the ESP32 playback queue. No firmware changes are required.
+- Cancel queued synthesis, provider requests and device audio on pipeline failure
+  or timeout. Preserve full model output, queued spoken text, aggregate audio
+  metrics and completed segment count in voice records.
+- Enable streaming by default with configurable sentenceMinRunes (12),
+  sentenceMaxRunes (80) and maxSpokenRunes (6000). `stream: false` retains the
+  previous complete-response behavior. Support servers returning a single JSON
+  response without retrying a reply after playback starts.
+- Include the VAD/VP list timings and averages from 1.0.6.
+
+Validation: Go tests and race checks, `go vet`, Linux amd64/arm64 builds; mock SSE
+tests prove first audio precedes LLM completion, ordered segmentation and one
+device stream with both TTS providers. Checked SSE errors, truncation, bounded
+queue cancellation, spoken limits and complete reply persistence. A simulated
+LLM/device pipeline also passed against live local TTS at 192.168.1.8:18081.
+Live Nanobot SSE and physical-board playback were not exercised in these tests.
+
 ## 1.0.6 — 2026-10-07
 
 - Show VAD and VP alongside ASR, Nanobot and TTS in the voice-record list's stage

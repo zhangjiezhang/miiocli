@@ -70,6 +70,10 @@ Config example:
         baseUrl: https://nanobot.local.pascall.cn
         apiKey: replace-with-a-nanobot-api-key
         model: nanobot
+        stream: true
+        sentenceMinRunes: 12
+        sentenceMaxRunes: 80
+        maxSpokenRunes: 6000
         timeoutSeconds: 600
     ota:
       directory: ./releases
@@ -133,6 +137,38 @@ Set `voice.logInput: true` to log ESP32 utterance IDs, audio size and duration, 
 
 Nanobot authentication uses `voice.nanobot.apiKey`. Each device is sent as a stable OpenAI `user` value, so Nanobot maintains an independent conversation for every ESP32. `model` is optional and may be omitted if the server is configured to accept its default model. Because `app.yaml` contains device, API, OTA, Alibaba Cloud, and Nanobot credentials, restrict it to the service account, for example with `chmod 600 app.yaml`.
 
+**Streaming replies and sentence TTS**
+
+`voice.nanobot.stream` defaults to `true`. The client requests OpenAI-compatible SSE,
+reads only `choices[0].delta.content`, and starts sentence TTS while later tokens arrive.
+Reasoning fields are never spoken. Sentence punctuation (`。！？!?；;` and newline)
+ends a segment immediately; comma/colon boundaries require `sentenceMinRunes` characters
+(default 12). `sentenceMaxRunes` (default 80, range 20–500) splits long unpunctuated text.
+A trailing period waits for the next token to avoid splitting decimals such as `3.14`.
+Remaining text is flushed at successful stream completion. `sentenceMinRunes` must be
+between 1 and `sentenceMaxRunes`. This is punctuation-based segmentation, not an LLM call.
+
+A bounded eight-segment queue lets LLM reception overlap synthesis. TTS requests run in
+order using either configured provider. All segments share one PCM stream ID and one
+`audio_start`/`audio_end` pair, so the firmware does not reset its playback queue between
+sentences. No ESP32 firmware change is needed. Errors/timeout cancel the pending queue,
+provider HTTP request and device audio stream. The conversation stays processing until
+both LLM reception and all queued synthesis have finished.
+
+`maxSpokenRunes` defaults to 6000 (1–60000); excess LLM text is retained in the record but
+not spoken. The complete generated reply and exact queued TTS text are recorded, along
+with aggregate audio bytes, first-audio timing and completed segment count. LLM and TTS
+stages overlap: their durations must not be added to infer end-to-end latency. Streaming
+TTS duration spans its first segment through final delivery, including gaps waiting for
+new LLM sentences. `timeoutSeconds` limits the whole streaming pipeline, while local TTS
+also retains its per-segment timeout. These timings do not measure audible playback.
+
+Set `stream: false` for the previous complete-response mode. If a compatible server
+ignores `stream: true` and returns `application/json`, that response is processed once
+and split into TTS segments; it provides no early-token latency benefit. The client
+never retries a reply after starting playback. Missing SSE completion is an error,
+with partial model output retained for diagnostics.
+
 **Voice call records**
 --
 Recording is enabled automatically. Each interaction is persisted atomically as a private
@@ -141,7 +177,8 @@ recognized text, complete Nanobot reply, actual spoken text, per-stage status/er
 elapsed milliseconds. Audio is recorded as format, byte count and duration metadata;
 raw recordings are not retained. TTS records also include time to first audio and bytes sent.
 Direct Speak API calls produce TTS-only records. The full Nanobot response is preserved even
-when device speech is limited to 600 characters.
+when device speech reaches the configured `maxSpokenRunes` limit (streaming) or
+the legacy 600-character limit (`stream: false`).
 
 TTS duration measures synthesis and delivery to the device connection, not the completion
 of audible playback. The record remains processing until asynchronous TTS completes.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -66,6 +67,7 @@ type TTSStats struct {
 	DurationMS   int64
 	FirstAudioMS int64
 	AudioBytes   int64
+	Segments     int
 }
 
 type synthesisRun struct {
@@ -207,10 +209,7 @@ func (s *AliyunTTSService) SpeakObserved(deviceID, text, voice string, completed
 	if !s.hub.IsOnline(deviceID) {
 		return 0, errors.New("device is offline")
 	}
-	streamID := atomic.AddUint32(&s.nextID, 1)
-	if streamID == 0 {
-		streamID = atomic.AddUint32(&s.nextID, 1)
-	}
+	streamID := s.nextStreamID()
 	if voice == "" {
 		voice = s.cfg.Voice
 	}
@@ -223,9 +222,21 @@ func (s *AliyunTTSService) SpeakObserved(deviceID, text, voice string, completed
 	return streamID, nil
 }
 
-func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, voice string) (stats TTSStats, resultErr error) {
+func (s *AliyunTTSService) nextStreamID() uint32 {
+	id := atomic.AddUint32(&s.nextID, 1)
+	if id == 0 {
+		id = atomic.AddUint32(&s.nextID, 1)
+	}
+	return id
+}
+
+func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, voice string) (TTSStats, error) {
+	return s.synthesizePart(context.Background(), deviceID, streamID, text, voice, true)
+}
+
+func (s *AliyunTTSService) synthesizePart(ctx context.Context, deviceID string, streamID uint32, text, voice string, manageStream bool) (stats TTSStats, resultErr error) {
 	if s.Provider() == "local" {
-		return s.synthesizeLocal(deviceID, streamID, text)
+		return s.synthesizeLocalPart(ctx, deviceID, streamID, text, manageStream)
 	}
 	started := time.Now()
 	var run *synthesisRun
@@ -273,9 +284,10 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 	}
 	defer tts.Shutdown()
 
-	if err := s.hub.StartPCM(deviceID, streamID); err != nil {
-		log.Printf("TTS stream start failed for %s: %v", deviceID, err)
-		return stats, err
+	if manageStream {
+		if err := s.hub.StartPCM(deviceID, streamID); err != nil {
+			return stats, err
+		}
 	}
 
 	param := nls.DefaultSpeechSynthesisParam()
@@ -285,13 +297,17 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 	done, err := tts.Start(text, param, nil)
 	if err != nil {
 		log.Printf("TTS start failed for %s: %v", deviceID, err)
-		_ = s.hub.CancelAudio(deviceID, streamID)
+		if manageStream {
+			_ = s.hub.CancelAudio(deviceID, streamID)
+		}
 		return stats, err
 	}
 
 	completed := false
 	select {
 	case completed = <-done:
+	case <-ctx.Done():
+		run.setError(ctx.Err())
 	case <-time.After(aliyunTTSTimeout):
 		run.setError(errors.New("Alibaba Cloud TTS timed out"))
 	}
@@ -300,12 +316,15 @@ func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, vo
 			err = errors.New("Alibaba Cloud TTS did not complete")
 		}
 		log.Printf("TTS stream failed for %s: %v", deviceID, err)
-		_ = s.hub.CancelAudio(deviceID, streamID)
+		if manageStream {
+			_ = s.hub.CancelAudio(deviceID, streamID)
+		}
 		return stats, err
 	}
-	if err := s.hub.EndAudio(deviceID, streamID); err != nil {
-		log.Printf("TTS stream end failed for %s: %v", deviceID, err)
-		return stats, err
+	if manageStream {
+		if err := s.hub.EndAudio(deviceID, streamID); err != nil {
+			return stats, err
+		}
 	}
 	return stats, nil
 }

@@ -82,7 +82,7 @@
         const stage=row[key]||{}; const article=document.createElement('article'); article.className='record-detail';
         const heading=document.createElement('h3'); heading.textContent=`${label} · ${stage.provider||'—'} · ${labels[stage.status]||'未执行'} · ${duration(stage.duration_ms)}`; article.append(heading);
         for(const [field,name] of [['input','输入'],['output','输出'],['error','错误']]) { if(!stage[field])continue; const p=document.createElement('p');p.textContent=name;const pre=document.createElement('pre');pre.textContent=stage[field];article.append(p,pre); }
-        if(key==='tts'&&stage.status){const p=document.createElement('p');p.textContent=`首段音频 ${duration(stage.first_audio_ms)} · 发送音频 ${stage.audio_bytes||0} 字节`;article.append(p);}
+        if(key==='tts'&&stage.status){const p=document.createElement('p');p.textContent=`首段音频 ${duration(stage.first_audio_ms)} · 发送音频 ${stage.audio_bytes||0} 字节${stage.segments ? ` · 合成 ${stage.segments} 段` : ''}`;article.append(p);}
         body.append(article);
       }
       $('detail').hidden=false; $('detail').scrollIntoView({behavior:'smooth',block:'start'});
