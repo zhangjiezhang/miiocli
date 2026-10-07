@@ -21,7 +21,7 @@
     <section class="section">
       <form id="query" class="record-controls">
         <label class="field">设备<input id="device" placeholder="全部设备"></label>
-        <label class="field">状态<select id="status"><option value="">全部</option><option value="success">成功</option><option value="error">失败</option><option value="processing">处理中</option><option value="interrupted">已中断</option></select></label>
+        <label class="field">状态<select id="status"><option value="">全部</option><option value="success">成功</option><option value="error">失败</option><option value="ignored">无语音</option><option value="processing">处理中</option><option value="interrupted">已中断</option></select></label>
         <label class="field">输入 / 输出关键词<input id="keyword" placeholder="搜索对话内容"></label>
         <label class="field">开始时间<input id="start" type="datetime-local"></label>
         <label class="field">结束时间<input id="end" type="datetime-local"></label>
@@ -41,7 +41,7 @@
   </main>
   <script>
     const $=id=>document.getElementById(id); let page=1, total=0;
-    const labels={success:'成功',error:'失败',processing:'处理中',interrupted:'已中断'};
+    const labels={ignored:'无语音',unknown:'未知说话人',success:'成功',error:'失败',processing:'处理中',interrupted:'已中断'};
     const duration=value=>`${value ?? 0} ms`;
     function report(error){ $('message').textContent=error.message; $('message').className='error-text'; }
     async function api(path,options={}){
@@ -62,7 +62,7 @@
         const row=document.createElement('tr');
         cell(row,new Date(record.started_at).toLocaleString()+'\n'+record.device_id);
         cell(row,labels[record.status]||record.status);
-        cell(row,record.asr.output||record.tts.input||'—');
+        cell(row,(record.speaker?.matched ? (record.speaker.name||record.speaker.id)+'：' : '')+(record.asr.output||record.tts.input||'—'));
         cell(row,record.nanobot.output||record.tts.input||'—');
         cell(row,`ASR: ${record.asr.status?duration(record.asr.duration_ms):'—'}\nNanobot: ${record.nanobot.status?duration(record.nanobot.duration_ms):'—'}\nTTS: ${record.tts.status?duration(record.tts.duration_ms):'—'}`);
         const button=document.createElement('button'); button.className='button'; button.textContent='详情'; button.onclick=()=>show(record.id).catch(report);
@@ -75,8 +75,8 @@
     async function show(id){
       const row=await api('/console/v1/voice/records/'+encodeURIComponent(id)); const body=$('detail-body'); body.replaceChildren();
       const summary=document.createElement('p'); summary.textContent=`${row.device_id} · ${new Date(row.started_at).toLocaleString()} · ${labels[row.status]} · 总耗时 ${duration(row.total_ms)} · 输入音频 ${row.audio_duration_ms} ms / ${row.audio_bytes} 字节`; body.append(summary);
-      for(const [key,label] of [['asr','语音识别'],['nanobot','Nanobot'],['tts','语音播报']]){
-        const stage=row[key]; const article=document.createElement('article'); article.className='record-detail';
+      for(const [key,label] of [['vad','语音活动检测'],['asr','语音识别'],['vp','声纹识别'],['nanobot','Nanobot'],['tts','语音播报']]){
+        const stage=row[key]||{}; const article=document.createElement('article'); article.className='record-detail';
         const heading=document.createElement('h3'); heading.textContent=`${label} · ${stage.provider||'—'} · ${labels[stage.status]||'未执行'} · ${duration(stage.duration_ms)}`; article.append(heading);
         for(const [field,name] of [['input','输入'],['output','输出'],['error','错误']]) { if(!stage[field])continue; const p=document.createElement('p');p.textContent=name;const pre=document.createElement('pre');pre.textContent=stage[field];article.append(p,pre); }
         if(key==='tts'&&stage.status){const p=document.createElement('p');p.textContent=`首段音频 ${duration(stage.first_audio_ms)} · 发送音频 ${stage.audio_bytes||0} 字节`;article.append(p);}

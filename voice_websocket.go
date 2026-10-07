@@ -32,6 +32,8 @@ type VoiceConfig struct {
 	LogInput bool                         `yaml:"logInput"`
 	Devices  map[string]VoiceDeviceConfig `yaml:"devices"`
 	TTS      AliyunTTSConfig              `yaml:"tts"`
+	VAD      VADConfig                    `yaml:"vad"`
+	VP       VoiceprintConfig             `yaml:"vp"`
 	ASR      ASRConfig                    `yaml:"asr"`
 	Records  VoiceRecordsConfig           `yaml:"records"`
 	Codex    CodexConfig                  `yaml:"codex"`

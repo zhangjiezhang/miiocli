@@ -25,12 +25,16 @@ const (
 // AliyunTTSConfig holds the private Alibaba Cloud NLS credentials. Use an
 // AccessKey pair for automatic token renewal, or provide a short-lived token.
 type AliyunTTSConfig struct {
-	AppKey          string `yaml:"appKey"`
-	AccessKeyID     string `yaml:"accessKeyId"`
-	AccessKeySecret string `yaml:"accessKeySecret"`
-	Token           string `yaml:"token"`
-	Endpoint        string `yaml:"endpoint"`
-	Voice           string `yaml:"voice"`
+	Provider        string  `yaml:"provider"`
+	LocalURL        string  `yaml:"localUrl"`
+	LocalSpeed      float64 `yaml:"localSpeed"`
+	TimeoutSeconds  int     `yaml:"timeoutSeconds"`
+	AppKey          string  `yaml:"appKey"`
+	AccessKeyID     string  `yaml:"accessKeyId"`
+	AccessKeySecret string  `yaml:"accessKeySecret"`
+	Token           string  `yaml:"token"`
+	Endpoint        string  `yaml:"endpoint"`
+	Voice           string  `yaml:"voice"`
 }
 
 type speakRequest struct {
@@ -79,10 +83,15 @@ func NewAliyunTTSService(cfg AliyunTTSConfig, apiToken string, hub *VoiceHub) (*
 	if hub == nil {
 		return nil, errors.New("voice hub is required")
 	}
-	if cfg.AppKey == "" {
+	var err error
+	cfg, err = normalizeTTSConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Provider == "aliyun" && cfg.AppKey == "" {
 		return nil, errors.New("voice.tts.appKey is required")
 	}
-	if cfg.Token == "" && (cfg.AccessKeyID == "" || cfg.AccessKeySecret == "") {
+	if cfg.Provider == "aliyun" && cfg.Token == "" && (cfg.AccessKeyID == "" || cfg.AccessKeySecret == "") {
 		return nil, errors.New("configure voice.tts.token or an AccessKey pair")
 	}
 	if apiToken == "" {
@@ -171,7 +180,7 @@ func (s *AliyunTTSService) Speak(deviceID, text, voice string) (uint32, error) {
 		return s.SpeakObserved(deviceID, text, voice, nil)
 	}
 	record := newVoiceRecord(deviceID, "", "speak")
-	record.TTS = VoiceStage{Provider: "aliyun", Status: "processing", Input: strings.TrimSpace(text)}
+	record.TTS = VoiceStage{Provider: s.Provider(), Status: "processing", Input: strings.TrimSpace(text)}
 	if err := s.records.Save(record); err != nil {
 		log.Printf("voice record write failed: %v", err)
 	}
@@ -215,6 +224,9 @@ func (s *AliyunTTSService) SpeakObserved(deviceID, text, voice string, completed
 }
 
 func (s *AliyunTTSService) synthesize(deviceID string, streamID uint32, text, voice string) (stats TTSStats, resultErr error) {
+	if s.Provider() == "local" {
+		return s.synthesizeLocal(deviceID, streamID, text)
+	}
 	started := time.Now()
 	var run *synthesisRun
 	defer func() {

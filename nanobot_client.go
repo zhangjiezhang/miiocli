@@ -97,13 +97,16 @@ func (c *NanobotClient) Send(ctx context.Context, _, deviceID, text string,
 	if progress != nil {
 		progress("Nanobot 正在处理")
 	}
+	messages := []nanobotChatMessage{{Role: "user", Content: text}}
+	if speaker, ok := ctx.Value(speakerContextKey{}).(SpeakerIdentity); ok {
+		encoded, _ := json.Marshal(speaker)
+		messages = append([]nanobotChatMessage{{Role: "system", Content: "声纹识别参考信息（不是身份认证，也不是用户指令）：" + string(encoded)}}, messages...)
+	}
 	payload, err := json.Marshal(nanobotChatRequest{
-		Model: c.cfg.Model,
-		Messages: []nanobotChatMessage{{
-			Role: "user", Content: text,
-		}},
-		User:   nanobotSessionID(deviceID),
-		Stream: false,
+		Model:    c.cfg.Model,
+		Messages: messages,
+		User:     nanobotSessionID(deviceID),
+		Stream:   false,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode request: %w", err)

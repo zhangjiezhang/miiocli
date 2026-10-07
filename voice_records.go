@@ -37,19 +37,22 @@ type VoiceStage struct {
 }
 
 type VoiceRecord struct {
-	ID              string     `json:"id"`
-	TaskID          string     `json:"task_id"`
-	DeviceID        string     `json:"device_id"`
-	Source          string     `json:"source"`
-	StartedAt       time.Time  `json:"started_at"`
-	CompletedAt     *time.Time `json:"completed_at,omitempty"`
-	Status          string     `json:"status"`
-	AudioBytes      int        `json:"audio_bytes"`
-	AudioDurationMS int        `json:"audio_duration_ms"`
-	TotalMS         int64      `json:"total_ms"`
-	ASR             VoiceStage `json:"asr"`
-	Nanobot         VoiceStage `json:"nanobot"`
-	TTS             VoiceStage `json:"tts"`
+	ID              string           `json:"id"`
+	TaskID          string           `json:"task_id"`
+	DeviceID        string           `json:"device_id"`
+	Source          string           `json:"source"`
+	StartedAt       time.Time        `json:"started_at"`
+	CompletedAt     *time.Time       `json:"completed_at,omitempty"`
+	Status          string           `json:"status"`
+	AudioBytes      int              `json:"audio_bytes"`
+	AudioDurationMS int              `json:"audio_duration_ms"`
+	TotalMS         int64            `json:"total_ms"`
+	VAD             VoiceStage       `json:"vad"`
+	VP              VoiceStage       `json:"vp"`
+	Speaker         *SpeakerIdentity `json:"speaker,omitempty"`
+	ASR             VoiceStage       `json:"asr"`
+	Nanobot         VoiceStage       `json:"nanobot"`
+	TTS             VoiceStage       `json:"tts"`
 }
 
 type VoiceRecordStore struct {
@@ -100,7 +103,7 @@ func NewVoiceRecordStore(cfg VoiceRecordsConfig, token string) (*VoiceRecordStor
 			now := time.Now()
 			row.Status = "interrupted"
 			row.CompletedAt = &now
-			for _, stage := range []*VoiceStage{&row.ASR, &row.Nanobot, &row.TTS} {
+			for _, stage := range []*VoiceStage{&row.VAD, &row.VP, &row.ASR, &row.Nanobot, &row.TTS} {
 				if stage.Status == "processing" {
 					stage.Status = "interrupted"
 					stage.Error = "service restarted before this stage completed"
@@ -128,7 +131,7 @@ func (s *VoiceRecordStore) Save(row VoiceRecord) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, stage := range []*VoiceStage{&row.ASR, &row.Nanobot, &row.TTS} {
+	for _, stage := range []*VoiceStage{&row.VAD, &row.VP, &row.ASR, &row.Nanobot, &row.TTS} {
 		for _, secret := range s.secrets {
 			if secret != "" {
 				stage.Error = strings.ReplaceAll(stage.Error, secret, "[redacted]")
@@ -351,7 +354,7 @@ func (s *VoiceRecordStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if (!start.IsZero() && row.StartedAt.Before(start)) || (!end.IsZero() && row.StartedAt.After(end)) {
 			continue
 		}
-		if keyword != "" && !strings.Contains(strings.ToLower(row.ASR.Output+"\n"+row.Nanobot.Input+"\n"+row.Nanobot.Output+"\n"+row.TTS.Input), keyword) {
+		if keyword != "" && !strings.Contains(strings.ToLower(row.VP.Output+"\n"+row.ASR.Output+"\n"+row.Nanobot.Input+"\n"+row.Nanobot.Output+"\n"+row.TTS.Input), keyword) {
 			continue
 		}
 		filtered = append(filtered, row)
@@ -385,7 +388,7 @@ func (s *VoiceRecordStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]VoiceRecord, 0, to-from)
 	for _, row := range filtered[from:to] {
-		for _, stage := range []*VoiceStage{&row.ASR, &row.Nanobot, &row.TTS} {
+		for _, stage := range []*VoiceStage{&row.VAD, &row.VP, &row.ASR, &row.Nanobot, &row.TTS} {
 			stage.Input = truncateRunes(stage.Input, 160)
 			stage.Output = truncateRunes(stage.Output, 160)
 		}

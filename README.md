@@ -38,10 +38,31 @@ Config example:
         # Optional when MIIOCLI_LOCAL_ASR_TOKEN is set in the container environment.
         localToken: replace-with-the-rk3588-asr-token
         timeoutSeconds: 15
+      vad:
+        enabled: true
+        provider: energy
+        thresholdDb: -40
+        minSpeechMs: 120
+        paddingMs: 200
+      vp:
+        enabled: false # Enable after registering speakers and supplying the service key.
+        baseUrl: http://192.168.1.62:8005
+        # apiKey may be omitted when MIIOCLI_VP_API_KEY is set.
+        similarityThreshold: 0.4
+        timeoutSeconds: 10
+        requireMatch: false
+        speakers:
+          - id: speaker-001
+            name: 张三
+            description: 家庭成员
       devices:
         szp-001:
           token: replace-with-a-device-secret
       tts:
+        provider: aliyun # local or aliyun (default)
+        localUrl: http://192.168.1.8:18081
+        localSpeed: 1.0
+        timeoutSeconds: 90
         appKey: your-aliyun-nls-app-key
         accessKeyId: your-aliyun-access-key-id
         accessKeySecret: your-aliyun-access-key-secret
@@ -105,7 +126,7 @@ In `auto` mode, connection errors, timeouts, non-200 responses (including busy/4
 or oversized JSON, and empty results trigger cloud fallback. Caller cancellation does not.
 The deployed RK3588 service accepts audio up to 20 seconds; longer recordings fall back in
 `auto` mode and fail in `local` mode. Aliyun ASR credentials are required for `aliyun` and `auto`.
-TTS still uses Alibaba Cloud in every mode. No ESP32 firmware change is needed.
+TTS is configured independently through `voice.tts.provider`. No ESP32 firmware change is needed.
 
 Set `voice.logInput: true` to log ESP32 utterance IDs, audio size and duration, and recognized text. It defaults to `false`; raw PCM data and authentication tokens are never written to this log. Recognized text may contain sensitive information, so enable it only when needed for diagnostics.
 
@@ -163,7 +184,54 @@ Console and board routes are separate:
 The console router does not expose board authentication/check/download paths.
 Scripts use the same `/console/v1/...` management paths. OTA and Web App management are not registered under `/v1/...`; voice integration APIs remain authenticated there.
 
-**Aliyun TTS API**
+**Local and Alibaba Cloud TTS**
+
+`voice.tts.provider` accepts `local` or `aliyun`; omission preserves Alibaba Cloud behavior.
+Use `local` with `localUrl: http://192.168.1.8:18081` to call the sibling `tts/` project's
+`POST /tts/stream` interface. The client reads raw PCM with `X-Sample-Rate`, keeps incomplete
+samples across HTTP chunks, and streams resampled 16 kHz PCM to the device. Text longer than
+500 characters is split into ordered requests within one device playback stream. Local
+`localSpeed` defaults to 1.0 (0.7–1.5); `timeoutSeconds` defaults to 90 (1–300), covering the
+whole synthesis including long-text requests. Local failures cancel playback and are recorded;
+there is no implicit cloud fallback. Local TTS requires no Alibaba Cloud credentials. If ASR
+is still `aliyun`/`auto`, its NLS credentials remain required in `voice.tts`.
+
+Local Matcha has one fixed voice, so the Speak API's `voice` field only affects Alibaba Cloud.
+The Speak API and device playback protocol are the same for both providers.
+
+**VAD and voiceprint flow**
+
+The flow follows [xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server):
+`PCM → VAD → (ASR ∥ VP) → Nanobot → TTS`. Both VAD and VP are opt-in, preserving old configurations.
+VAD runs when the existing push-to-talk `listen_end` arrives; it does not stop recording early
+or introduce hands-free listening. The local `energy` detector measures DC-corrected RMS in
+20 ms frames, rejects silence and clicks shorter than `minSpeechMs`, and trims leading/trailing
+silence while preserving internal pauses and `paddingMs` of context. `thresholdDb` is dBFS
+(default -40, range -90 to -5). `minSpeechMs` defaults to 120 (20–2000), `paddingMs` defaults
+to 200 (positive values up to 2000; omitted/zero uses the default). This is an energy VAD,
+not XiaoZhi's Silero neural model: sustained noise/music can pass the gate. Tune it using your
+microphone's noise floor. Silence produces an `ignored` record and skips ASR, VP, Nanobot and TTS.
+
+VP uses the deployed 3DSpeaker-compatible service at `http://192.168.1.62:8005` (configurable).
+Set `voice.vp.enabled: true`, configure `speakers` with IDs already registered at the service,
+and supply `apiKey` or environment variable `MIIOCLI_VP_API_KEY`. IDs must be unique and contain
+no commas. The client wraps the filtered PCM in a 16 kHz mono PCM16 WAV and sends multipart
+`file` and comma-separated `speaker_ids` to `POST /voiceprint/identify` with Bearer authentication,
+matching the deployed OpenAPI and XiaoZhi's voiceprint client. Registration is managed by that
+service's `POST /voiceprint/register` endpoint (`speaker_id`, WAV `file`, same Bearer key).
+No samples are registered or deleted automatically.
+
+A configured candidate above `similarityThreshold` (default 0.4) becomes a matched speaker;
+low scores or unexpected IDs become unknown speakers. VP errors/timeouts are recorded and
+allow the conversation to continue by default, as in XiaoZhi. `requireMatch: true` stops before
+Nanobot/TTS for unknown speakers or service errors; voiceprints are advisory identification,
+not a substitute for device/API authentication. ASR and VP run concurrently with separate
+stage timings. Nanobot receives speaker ID, name, description, score and match status as
+structured reference metadata in a system message; the recognized user text and per-device
+conversation ID remain intact. The record page displays VAD/VP results and speaker details.
+Audio and service keys are never persisted in records.
+
+**Speak API**
 --
 Send a protected request to start a stream on an online device. The server uses Alibaba Cloud NLS streaming synthesis with native 16 kHz PCM output and forwards it to the device as `pcm_s16le` frames.
 
@@ -174,7 +242,7 @@ curl -X POST http://<server>:8080/v1/devices/szp-001/speak \
   -d '{"text":"服务器温度过高，请及时处理。","voice":"xiaoyun"}'
 ```
 
-The response returns `202 Accepted` and a `stream_id`. Configure either an AccessKey pair for automatic NLS token renewal or `voice.tts.token` for a short-lived token.
+The response returns `202 Accepted` and a `stream_id`. For Alibaba Cloud, configure either an AccessKey pair for automatic NLS token renewal or `voice.tts.token` for a short-lived token.
 
 Use `GET /v1/devices` with the same Bearer API token to list devices that currently have an active WebSocket session.
 

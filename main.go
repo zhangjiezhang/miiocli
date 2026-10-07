@@ -175,7 +175,7 @@ func main() {
 		log.Printf("voice record store disabled: %v", recordsErr)
 	} else {
 		recordStore.secrets = []string{config.Voice.APIToken, config.Voice.ASR.LocalToken,
-			os.Getenv("MIIOCLI_LOCAL_ASR_TOKEN"), config.Voice.TTS.Token,
+			os.Getenv("MIIOCLI_LOCAL_ASR_TOKEN"), config.Voice.VP.APIKey, os.Getenv("MIIOCLI_VP_API_KEY"), config.Voice.TTS.Token,
 			config.Voice.TTS.AccessKeyID, config.Voice.TTS.AccessKeySecret, config.Voice.Nanobot.APIKey}
 		for _, device := range config.Voice.Devices {
 			recordStore.secrets = append(recordStore.secrets, device.Token)

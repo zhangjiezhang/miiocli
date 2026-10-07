@@ -37,6 +37,8 @@ type VoiceCommandService struct {
 	runner     VoiceAgent
 	logInput   bool
 	records    *VoiceRecordStore
+	vad        *voiceActivityDetector
+	vp         *voiceprintClient
 }
 
 type aliyunRecognizer struct {
@@ -61,8 +63,16 @@ func NewVoiceCommandService(cfg VoiceConfig, hub *VoiceHub, tts *AliyunTTSServic
 	if err != nil {
 		return nil, err
 	}
+	vad, err := newVAD(cfg.VAD)
+	if err != nil {
+		return nil, err
+	}
+	vp, err := newVoiceprintClient(cfg.VP)
+	if err != nil {
+		return nil, err
+	}
 	return &VoiceCommandService{
-		hub: hub, tts: tts,
+		hub: hub, tts: tts, vad: vad, vp: vp,
 		recognizer: recognizer,
 		runner:     runner,
 		logInput:   cfg.LogInput,
@@ -75,15 +85,78 @@ func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm 
 	record.AudioBytes = len(pcm)
 	record.AudioDurationMS = len(pcm) * 1000 / 32000
 	record.ASR.Input = "PCM 16kHz mono signed 16-bit little-endian"
+	if s.vad != nil {
+		s.sendState(deviceID, taskID, "detecting", "正在检测语音活动", "")
+		started := time.Now()
+		record.VAD = VoiceStage{Provider: "energy", Status: "processing", Input: record.ASR.Input}
+		filtered, speech, err := s.vad.Filter(pcm)
+		record.VAD.DurationMS = time.Since(started).Milliseconds()
+		record.VAD.Status = "success"
+		record.VAD.AudioBytes = int64(len(filtered))
+		record.VAD.Output = fmt.Sprintf("speech=%t; retained_audio_ms=%d", speech, len(filtered)/32)
+		if err != nil || !speech {
+			status := "ignored"
+			if err != nil {
+				status = "error"
+				record.VAD.Status = "error"
+				record.VAD.Error = err.Error()
+			}
+			finishVoiceRecord(&record, status)
+			s.saveRecord(record)
+			if err != nil {
+				s.fail(deviceID, taskID, err)
+			} else {
+				s.sendState(deviceID, taskID, "done", "未检测到有效语音", "")
+			}
+			return
+		}
+		pcm = filtered
+	}
+	ctxAudio, cancelAudio := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancelAudio()
+	type vpResult struct {
+		identity SpeakerIdentity
+		err      error
+		duration int64
+	}
+	var vpDone chan vpResult
+	if s.vp != nil {
+		record.VP = VoiceStage{Provider: "3dspeaker", Status: "processing", Input: "WAV 16kHz mono PCM16"}
+		vpDone = make(chan vpResult, 1)
+		go func() {
+			started := time.Now()
+			identity, err := s.vp.Identify(ctxAudio, pcm)
+			vpDone <- vpResult{identity, err, time.Since(started).Milliseconds()}
+		}()
+	}
 	record.ASR.Status = "processing"
 	s.saveRecord(record)
 	s.sendState(deviceID, taskID, "transcribing", "正在识别语音", "")
 	started := time.Now()
-	text, provider, err := transcribeWithProvider(s.recognizer, context.Background(), pcm)
+	text, provider, err := transcribeWithProvider(s.recognizer, ctxAudio, pcm)
 	record.ASR.DurationMS = time.Since(started).Milliseconds()
 	record.ASR.Provider = provider
 	record.ASR.Output = text
 	record.ASR.Status = "success"
+	if err != nil {
+		cancelAudio()
+	}
+	if vpDone != nil {
+		result := <-vpDone
+		record.VP.DurationMS = result.duration
+		record.VP.Status = "success"
+		if result.err != nil {
+			record.VP.Status = "error"
+			record.VP.Error = result.err.Error()
+		} else {
+			record.Speaker = &result.identity
+			encoded, _ := json.Marshal(result.identity)
+			record.VP.Output = string(encoded)
+			if !result.identity.Matched {
+				record.VP.Status = "unknown"
+			}
+		}
+	}
 	if err != nil {
 		record.ASR.Status = "error"
 		record.ASR.Error = err.Error()
@@ -97,11 +170,20 @@ func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm 
 			deviceID, utteranceID, len(pcm), text)
 	}
 
+	if s.vp != nil && s.vp.cfg.RequireMatch && (record.Speaker == nil || !record.Speaker.Matched) {
+		finishVoiceRecord(&record, "error")
+		s.saveRecord(record)
+		s.fail(deviceID, taskID, errors.New("未匹配到已注册说话人，停止语音交互"))
+		return
+	}
 	s.sendState(deviceID, taskID, "thinking", "Nanobot 正在分析", text)
 	record.Nanobot = VoiceStage{Provider: "nanobot", Status: "processing", Input: text}
 	s.saveRecord(record)
 	ctx, cancel := context.WithTimeout(context.Background(), s.runner.Timeout())
 	defer cancel()
+	if record.Speaker != nil {
+		ctx = context.WithValue(ctx, speakerContextKey{}, *record.Speaker)
+	}
 
 	started = time.Now()
 	summary, err := s.runner.Send(ctx, taskID, deviceID, text, func(message string) {
@@ -123,7 +205,7 @@ func (s *VoiceCommandService) HandleUtterance(deviceID, utteranceID string, pcm 
 		summary = "任务已完成"
 	}
 	s.sendState(deviceID, taskID, "done", summary, text)
-	record.TTS = VoiceStage{Provider: "aliyun", Status: "processing", Input: summary}
+	record.TTS = VoiceStage{Provider: s.tts.Provider(), Status: "processing", Input: summary}
 	s.saveRecord(record)
 	if _, err := s.tts.SpeakObserved(deviceID, summary, "", func(stats TTSStats, err error) {
 		completeTTSRecord(&record, stats, err)

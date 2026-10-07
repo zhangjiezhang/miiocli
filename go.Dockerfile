@@ -5,7 +5,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY main.go console_api.go kiwi_service.go voice_websocket.go voice_command.go voice_records.go asr.go nanobot_client.go codex_sessions.go aliyun_tts.go ota_service.go web_release_service.go ./
+COPY main.go console_api.go kiwi_service.go voice_websocket.go voice_command.go voice_records.go asr.go nanobot_client.go codex_sessions.go aliyun_tts.go local_tts.go vad.go voiceprint.go ota_service.go web_release_service.go ./
 COPY internal ./internal
 COPY dashboard.html ota.html webapp.html websocket.html voice_records.html codex.html app.css ./
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -o gomiio .
