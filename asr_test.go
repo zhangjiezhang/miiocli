@@ -35,6 +35,34 @@ func TestLocalASRRequest(t *testing.T) {
 	}
 }
 
+func TestLocalASRWithoutToken(t *testing.T) {
+	t.Setenv("MIIOCLI_LOCAL_ASR_TOKEN", "")
+	pcm := make([]byte, 3200)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if _, present := r.Header["Authorization"]; present {
+			t.Error("tokenless ASR request must omit Authorization entirely")
+		}
+		if r.URL.Path != "/v1/transcribe" || r.Method != "POST" || r.Header.Get("Content-Type") != "audio/pcm" || !bytes.Equal(body, pcm) {
+			t.Error("incorrect tokenless ASR request")
+		}
+		io.WriteString(w, `{"text":"本地识别成功"}`)
+	}))
+	defer server.Close()
+	for _, provider := range []string{"local", "auto"} {
+		t.Run(provider, func(t *testing.T) {
+			r, err := newSpeechRecognizer(ASRConfig{Provider: provider, LocalURL: server.URL}, AliyunTTSConfig{AppKey: "app", Token: "cloud-token"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			text, used, err := transcribeWithProvider(r, context.Background(), pcm)
+			if err != nil || text != "本地识别成功" || used != "local" {
+				t.Fatalf("text=%q provider=%q error=%v", text, used, err)
+			}
+		})
+	}
+}
+
 func TestLocalASRFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

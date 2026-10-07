@@ -63,8 +63,8 @@ func newSpeechRecognizer(cfg ASRConfig, cloud AliyunTTSConfig) (speechRecognizer
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv("MIIOCLI_LOCAL_ASR_TOKEN"))
 	}
-	if token == "" || strings.ContainsAny(token, "\r\n") {
-		return nil, errors.New("voice.asr.localToken or MIIOCLI_LOCAL_ASR_TOKEN is required")
+	if strings.ContainsAny(token, "\r\n") {
+		return nil, errors.New("voice.asr.localToken must not contain newlines")
 	}
 	timeout := cfg.TimeoutSeconds
 	if timeout == 0 {
@@ -95,7 +95,9 @@ func (r *localRecognizer) Transcribe(ctx context.Context, pcm []byte) (string, e
 	if err != nil {
 		return "", errors.New("create local ASR request failed")
 	}
-	req.Header.Set("Authorization", "Bearer "+r.token)
+	if r.token != "" {
+		req.Header.Set("Authorization", "Bearer "+r.token)
+	}
 	req.Header.Set("Content-Type", "audio/pcm")
 	resp, err := r.client.Do(req)
 	if err != nil {

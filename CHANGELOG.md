@@ -1,5 +1,17 @@
 # Release notes
 
+## 1.0.5 — 2026-10-07
+
+- Remove the local ASR token requirement. Both `local` and the local leg of `auto`
+  work without `localToken` or `MIIOCLI_LOCAL_ASR_TOKEN`; tokenless requests omit
+  the Authorization header entirely. Optional Bearer credentials remain supported
+  for compatibility with authenticated deployments.
+- Remove the token from the example configuration and document tokenless use.
+
+Validation: Go tests and race checks, `go vet`, Linux amd64/arm64 builds, and live
+tokenless transcription at `http://192.168.1.8:18080/v1/transcribe`. The generated
+test audio was recognized as “你好，请打开客厅的灯。”.
+
 ## 1.0.4 — 2026-10-07
 
 - Add independently configurable local/Alibaba Cloud TTS. Local Matcha TTS defaults

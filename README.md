@@ -35,8 +35,6 @@ Config example:
       asr:
         provider: auto
         localUrl: http://192.168.1.8:18080
-        # Optional when MIIOCLI_LOCAL_ASR_TOKEN is set in the container environment.
-        localToken: replace-with-the-rk3588-asr-token
         timeoutSeconds: 15
       vad:
         enabled: true
@@ -115,9 +113,12 @@ For push-to-talk commands, the device sends `listen_start`, streams 16 kHz mono 
 
 `voice.asr.provider` supports `aliyun` (default when omitted), `local` (local service only),
 and `auto` (local first, Alibaba Cloud NLS fallback). Local ASR sends the original PCM to
-`voice.asr.localUrl` + `/v1/transcribe`, with `Content-Type: audio/pcm` and Bearer authentication.
-Use the `ASR_TOKEN` from the RK3588 server's `/home/pascall/asr/.env` as `localToken`, or omit
-`localToken` and set `MIIOCLI_LOCAL_ASR_TOKEN` in the miiocli container environment.
+`voice.asr.localUrl` + `/v1/transcribe`, with `Content-Type: audio/pcm`.
+The deployed local service no longer requires a token: omit `localToken` and unset
+`MIIOCLI_LOCAL_ASR_TOKEN` to send requests without an Authorization header.
+For compatibility with authenticated deployments, an explicitly configured `localToken`
+or `MIIOCLI_LOCAL_ASR_TOKEN` still sends Bearer authentication; neither is required
+for `local` or the local leg of `auto`.
 YAML values are literal: `${VARIABLE}` interpolation is not supported.
 `timeoutSeconds` limits the local HTTP request, defaults to 15, and accepts 1–120.
 Local requests bypass HTTP proxy environment variables and do not follow redirects.
